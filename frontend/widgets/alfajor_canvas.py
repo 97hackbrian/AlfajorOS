@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Visualización del Alfajor - Proyecto de Grado
-Widget QPainter que renderiza el alfajor con crema en tiempo real.
-Compatible con EGLFS (sin OpenGL).
+Visualización 3D del Alfajor - Proyecto de Grado
+Widget QPainter con perspectiva 3D pseudo-isométrica.
+3 vistas: Planta (top-down), Isométrica, Libre (touch drag).
+Compatible con EGLFS (sin QOpenGLWidget).
 """
 
 import math
@@ -11,67 +12,101 @@ from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
 from PySide6.QtGui import (
     QPainter, QColor, QBrush, QPen, QFont,
-    QRadialGradient, QLinearGradient, QPainterPath
+    QRadialGradient, QLinearGradient, QPainterPath,
+    QTransform
 )
+
+# Modos de vista
+VIEW_TOP = 0        # Planta (top-down)
+VIEW_ISOMETRIC = 1  # Isométrica
+VIEW_FREE = 2       # Libre (touch)
+
+VIEW_NAMES = ["PLANTA", "ISOMÉTRICA", "LIBRE"]
 
 
 class AlfajorCanvas(QWidget):
     """
-    Widget que renderiza una vista superior del alfajor con crema.
-    Muestra el alfajor, el patrón de crema progresivo y texto.
+    Widget 3D del alfajor con crema usando QPainter con perspectiva.
+    Soporta 3 vistas y volumen en galleta, crema y texto.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._progreso = 0          # 0-100 (progreso real de extrusión)
+        self._progreso = 0
         self._patron = ""
         self._texto = ""
-        self._grosor = 50           # % grosor crema
-        self._animacion_t = 0.0     # Tiempo de animación
-        self._printing = False      # True = modo impresión (progresivo)
+        self._grosor = 50
+        self._animacion_t = 0.0
+        self._printing = False
 
-        # Timer para animación sutil del alfajor
+        # Vista
+        self._view_mode = VIEW_TOP
+        self._tilt = 0.0          # Ángulo de inclinación (0=top, 60=lateral)
+        self._rotation = 0.0      # Rotación horizontal
+        # Para vista libre
+        self._drag_last = None
+        self._free_tilt = 35.0
+        self._free_rotation = 30.0
+
+        # Timer de animación
         self._timer_anim = QTimer(self)
         self._timer_anim.timeout.connect(self._tick_anim)
         self._timer_anim.start(50)
 
+        # Rects de botones de vista (calculados en paintEvent)
+        self._btn_rects = []  # [(QRectF, view_mode), ...]
+
         self.setMinimumSize(300, 300)
         self.setStyleSheet("background-color: #1e1e1e; border: 2px solid #4DB6AC; border-radius: 10px;")
 
+    # === Propiedades ===
+
     @property
     def _render_progreso(self):
-        """Progreso a usar para renderizado: 100 en preview, real durante impresión."""
         if self._printing:
             return self._progreso
         elif self._patron or self._texto:
-            return 100  # Preview: mostrar todo
+            return 100
         else:
             return 0
+
+    @property
+    def _current_tilt(self):
+        if self._view_mode == VIEW_TOP:
+            return 0.0
+        elif self._view_mode == VIEW_ISOMETRIC:
+            return 35.0
+        else:
+            return self._free_tilt
+
+    @property
+    def _current_rotation(self):
+        if self._view_mode == VIEW_TOP:
+            return 0.0
+        elif self._view_mode == VIEW_ISOMETRIC:
+            return 30.0
+        else:
+            return self._free_rotation
 
     # === API pública ===
 
     def set_progreso(self, valor):
-        """Configura el progreso de la extrusión (0-100)."""
         self._progreso = max(0, min(100, valor))
         self.update()
 
     def set_patron(self, patron):
-        """Configura el patrón decorativo a dibujar."""
         self._patron = patron
         self.update()
 
     def set_texto(self, texto):
-        """Configura el texto que se escribirá sobre la crema."""
         self._texto = texto
         self.update()
 
     def set_grosor(self, grosor):
-        """Configura el grosor de la crema (10-100%)."""
         self._grosor = grosor
         self.update()
 
     def reset(self):
-        """Resetea la visualización."""
         self._progreso = 0
         self._patron = ""
         self._texto = ""
@@ -80,15 +115,76 @@ class AlfajorCanvas(QWidget):
         self.update()
 
     def start_animacion(self):
-        """Cambia a modo impresión (progresivo)."""
         self._printing = True
         self._progreso = 0
         self.update()
 
     def stop_animacion(self):
-        """Vuelve a modo preview (muestra todo)."""
         self._printing = False
         self.update()
+
+    def set_view(self, mode):
+        self._view_mode = mode
+        self.update()
+
+    def cycle_view(self):
+        self._view_mode = (self._view_mode + 1) % 3
+        self.update()
+
+    # === Proyección 3D → 2D ===
+
+    def _project(self, x3d, y3d, z3d, cx, cy, scale):
+        """Proyecta un punto 3D a coordenadas 2D con perspectiva."""
+        tilt = math.radians(self._current_tilt)
+        rot = math.radians(self._current_rotation)
+
+        # Rotación alrededor de Y
+        x1 = x3d * math.cos(rot) - y3d * math.sin(rot)
+        y1 = x3d * math.sin(rot) + y3d * math.cos(rot)
+        z1 = z3d
+
+        # Inclinación (rotación alrededor de X)
+        y2 = y1 * math.cos(tilt) - z1 * math.sin(tilt)
+        z2 = y1 * math.sin(tilt) + z1 * math.cos(tilt)
+
+        # Proyección ortográfica con escala
+        px = cx + x1 * scale
+        py = cy + y2 * scale
+
+        return px, py, z2
+
+    def _project_point(self, x3d, y3d, z3d, cx, cy, scale):
+        px, py, _ = self._project(x3d, y3d, z3d, cx, cy, scale)
+        return QPointF(px, py)
+
+    # === Touch / Mouse ===
+
+    def mousePressEvent(self, event):
+        pos = event.position()
+        # Verificar si se presionó un botón de vista
+        for rect, mode in self._btn_rects:
+            if rect.contains(pos):
+                self._view_mode = mode
+                self.update()
+                return
+        # Vista libre: iniciar drag
+        if self._view_mode == VIEW_FREE:
+            self._drag_last = pos
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._view_mode == VIEW_FREE and self._drag_last is not None:
+            pos = event.position()
+            dx = pos.x() - self._drag_last.x()
+            dy = pos.y() - self._drag_last.y()
+            self._free_rotation += dx * 0.5
+            self._free_tilt = max(0, min(70, self._free_tilt + dy * 0.5))
+            self._drag_last = pos
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        self._drag_last = None
+        super().mouseReleaseEvent(event)
 
     # === Dibujo ===
 
@@ -101,274 +197,374 @@ class AlfajorCanvas(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
 
         w, h = self.width(), self.height()
-        size = min(w, h) - 20
         cx, cy = w / 2, h / 2
+        size = min(w, h) - 30
+        scale = size * 0.35 / 35  # 35mm = radio alfajor en modelo 3D
 
         # Fondo
         self._dibujar_fondo(painter, w, h)
 
-        # Base de la bandeja
-        self._dibujar_bandeja(painter, cx, cy, size)
+        tilt = self._current_tilt
 
-        # Alfajor
-        radio_alfajor = size * 0.40
-        self._dibujar_alfajor(painter, cx, cy, radio_alfajor)
+        # Dibujar en orden de profundidad
+        # 1. Sombra del alfajor
+        self._dibujar_sombra(painter, cx, cy, scale, tilt)
 
-        # Crema según patrón/preview
+        # 2. Alfajor (cilindro): lado inferior, lateral, tapa superior
+        self._dibujar_alfajor_3d(painter, cx, cy, scale, tilt)
+
+        # 3. Crema con volumen
         rp = self._render_progreso
         if rp > 0 or self._patron:
-            self._dibujar_crema(painter, cx, cy, radio_alfajor * 0.85, rp)
+            self._dibujar_crema_3d(painter, cx, cy, scale, tilt, rp)
 
-        # Texto sobre la crema
+        # 4. Texto con volumen
         if self._texto and rp > 60:
-            self._dibujar_texto(painter, cx, cy, radio_alfajor * 0.5, rp)
+            self._dibujar_texto_3d(painter, cx, cy, scale, tilt, rp)
 
-        # Indicador de progreso en borde (solo durante impresión)
+        # 5. Indicador de progreso
         if self._printing and self._progreso > 0 and self._progreso < 100:
-            self._dibujar_indicador_progreso(painter, cx, cy, radio_alfajor + 25)
+            self._dibujar_indicador_progreso(painter, cx, cy, size)
 
-        # Label de estado
-        self._dibujar_estado(painter, w, h)
+        # 6. UI: nombre de vista + estado
+        self._dibujar_ui(painter, w, h)
 
         painter.end()
 
     def _dibujar_fondo(self, painter, w, h):
-        """Fondo oscuro con gradiente sutil."""
         grad = QRadialGradient(w / 2, h / 2, max(w, h) / 2)
         grad.setColorAt(0.0, QColor(35, 35, 45))
         grad.setColorAt(1.0, QColor(20, 20, 28))
         painter.fillRect(0, 0, w, h, grad)
 
-    def _dibujar_bandeja(self, painter, cx, cy, size):
-        """Dibuja la bandeja/superficie de trabajo."""
-        radio = size * 0.48
-        # Sombra
-        painter.setBrush(QBrush(QColor(10, 10, 15, 80)))
+    def _dibujar_sombra(self, painter, cx, cy, scale, tilt):
+        """Sombra debajo del alfajor."""
         painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(cx + 3, cy + 3), radio, radio)
-        # Bandeja
-        grad = QRadialGradient(cx - radio * 0.3, cy - radio * 0.3, radio * 1.5)
-        grad.setColorAt(0.0, QColor(60, 62, 65))
-        grad.setColorAt(0.7, QColor(45, 47, 50))
-        grad.setColorAt(1.0, QColor(35, 37, 40))
-        painter.setBrush(QBrush(grad))
-        painter.setPen(QPen(QColor(80, 82, 85), 2))
-        painter.drawEllipse(QPointF(cx, cy), radio, radio)
+        r = 35 * scale
+        # Proyectar la sombra
+        sx, sy = cx, cy
+        if tilt > 5:
+            sy = cy + 15 * math.sin(math.radians(tilt))
+        painter.setBrush(QBrush(QColor(0, 0, 0, 40)))
+        ry = r * math.cos(math.radians(tilt)) * 0.95
+        painter.drawEllipse(QPointF(sx + 3, sy + 5), r, max(ry, r * 0.3))
 
-    def _dibujar_alfajor(self, painter, cx, cy, radio):
-        """Dibuja el alfajor (galleta) con textura realista."""
-        # Sombra del alfajor
-        painter.setBrush(QBrush(QColor(20, 15, 10, 100)))
+    def _dibujar_alfajor_3d(self, painter, cx, cy, scale, tilt):
+        """Dibuja el alfajor como un cilindro 3D."""
+        r = 35 * scale
+        grosor_galleta = 8 * scale  # Grosor del alfajor
+        tilt_rad = math.radians(tilt)
+        cos_t = math.cos(tilt_rad)
+
+        # Altura visual del cilindro
+        h_visual = grosor_galleta * math.sin(tilt_rad)
+        # Radio Y (elipse por perspectiva)
+        ry = r * cos_t if tilt > 2 else r
+
+        # Colores
+        color_top = QColor(200, 160, 110)
+        color_side = QColor(150, 115, 75)
+        color_bottom = QColor(120, 90, 55)
+
+        # === Cara inferior (solo si hay inclinación) ===
+        if tilt > 5:
+            grad_b = QRadialGradient(cx, cy + h_visual / 2, r)
+            grad_b.setColorAt(0, color_bottom.lighter(110))
+            grad_b.setColorAt(1, color_bottom)
+            painter.setBrush(QBrush(grad_b))
+            painter.setPen(QPen(color_bottom.darker(120), 1))
+            painter.drawEllipse(QPointF(cx, cy + h_visual / 2), r, max(ry, r * 0.3))
+
+        # === Lado del cilindro (solo si hay inclinación) ===
+        if tilt > 5:
+            side_path = QPainterPath()
+            # Arco inferior
+            rect_bot = QRectF(cx - r, cy + h_visual / 2 - ry, r * 2, ry * 2)
+            side_path.arcMoveTo(rect_bot, 180)
+            side_path.arcTo(rect_bot, 180, 180)
+            # Línea al arco superior
+            rect_top = QRectF(cx - r, cy - h_visual / 2 - ry, r * 2, ry * 2)
+            side_path.arcTo(rect_top, 0, -180)
+            side_path.closeSubpath()
+
+            # Gradiente lateral
+            grad_s = QLinearGradient(cx - r, cy, cx + r, cy)
+            grad_s.setColorAt(0.0, color_side.darker(120))
+            grad_s.setColorAt(0.3, color_side.lighter(110))
+            grad_s.setColorAt(0.7, color_side)
+            grad_s.setColorAt(1.0, color_side.darker(130))
+            painter.setBrush(QBrush(grad_s))
+            painter.setPen(QPen(color_side.darker(140), 0.5))
+            painter.drawPath(side_path)
+
+            # Línea de crema en el medio del lado
+            crema_y = cy
+            painter.setPen(QPen(QColor(255, 245, 220, 180), grosor_galleta * 0.3))
+            painter.drawArc(
+                QRectF(cx - r, crema_y - ry * 0.15, r * 2, ry * 0.3),
+                180 * 16, 180 * 16
+            )
+
+        # === Cara superior (tapa) ===
+        grad_t = QRadialGradient(cx - r * 0.2, cy - h_visual / 2 - ry * 0.2, r * 1.2)
+        grad_t.setColorAt(0.0, QColor(220, 180, 130))
+        grad_t.setColorAt(0.4, QColor(200, 160, 110))
+        grad_t.setColorAt(0.7, QColor(175, 140, 95))
+        grad_t.setColorAt(1.0, QColor(150, 115, 75))
+        painter.setBrush(QBrush(grad_t))
+        painter.setPen(QPen(QColor(130, 100, 65), 1.5))
+        painter.drawEllipse(QPointF(cx, cy - h_visual / 2), r, max(ry, r * 0.3))
+
+        # Textura puntos en la tapa
         painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(cx + 2, cy + 2), radio, radio)
-
-        # Galleta base - gradiente marrón dorado
-        grad = QRadialGradient(cx - radio * 0.25, cy - radio * 0.25, radio * 1.2)
-        grad.setColorAt(0.0, QColor(210, 170, 120))   # Dorado claro centro
-        grad.setColorAt(0.4, QColor(190, 150, 100))   # Marrón medio
-        grad.setColorAt(0.7, QColor(165, 130, 85))    # Marrón
-        grad.setColorAt(1.0, QColor(140, 105, 65))    # Marrón oscuro borde
-        painter.setBrush(QBrush(grad))
-        painter.setPen(QPen(QColor(120, 90, 55), 1.5))
-        painter.drawEllipse(QPointF(cx, cy), radio, radio)
-
-        # Textura: puntos aleatorios (estáticos, basados en posición)
-        painter.setPen(Qt.NoPen)
-        for i in range(40):
-            angulo = (i * 137.5) * math.pi / 180  # Ángulo dorado
-            r = radio * 0.15 + (i * radio * 0.8 / 40)
-            px = cx + r * math.cos(angulo)
-            py = cy + r * math.sin(angulo)
-            dot_size = 1.5 + (i % 3) * 0.8
-            alpha = 30 + (i % 4) * 10
-            painter.setBrush(QBrush(QColor(130, 100, 60, alpha)))
+        top_cy = cy - h_visual / 2
+        for i in range(30):
+            angulo = (i * 137.5) * math.pi / 180
+            fraction = 0.15 + (i * 0.8 / 30)
+            px = cx + r * fraction * math.cos(angulo)
+            py = top_cy + max(ry, r * 0.3) * fraction * math.sin(angulo)
+            dot_size = 1.2 + (i % 3) * 0.6
+            alpha = 25 + (i % 4) * 8
+            painter.setBrush(QBrush(QColor(140, 110, 70, alpha)))
             painter.drawEllipse(QPointF(px, py), dot_size, dot_size)
 
-        # Borde elevado (3D)
+        # Borde highlight
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(220, 185, 140, 60), 2))
-        painter.drawEllipse(QPointF(cx, cy), radio - 3, radio - 3)
+        painter.setPen(QPen(QColor(230, 195, 150, 50), 2))
+        painter.drawEllipse(QPointF(cx, cy - h_visual / 2), r - 3, max(ry - 3, r * 0.27))
 
-    def _dibujar_crema(self, painter, cx, cy, radio_max, progreso):
-        """Dibuja la crema según el patrón y progreso."""
-        grosor_linea = 2 + (self._grosor / 100) * 6
-        color_crema = QColor(255, 245, 220, 220)
+    def _dibujar_crema_3d(self, painter, cx, cy, scale, tilt, progreso):
+        """Dibuja la crema con volumen (grosor visible en 3D)."""
+        r = 35 * scale
+        tilt_rad = math.radians(tilt)
+        h_visual = 8 * scale * math.sin(tilt_rad)
+        ry = r * math.cos(tilt_rad) if tilt > 2 else r
+        radio_crema = r * 0.82
+
+        grosor_linea = 2 + (self._grosor / 100) * 5
+        crema_top_cy = cy - h_visual / 2
+
+        # Aplicar transformación para la elipse en perspectiva
+        painter.save()
+        if tilt > 2:
+            # Transformar para que el dibujo 2D se vea en perspectiva
+            t = QTransform()
+            t.translate(cx, crema_top_cy)
+            t.scale(1.0, max(ry / r, 0.3))
+            t.translate(-cx, -crema_top_cy)
+            painter.setTransform(t, True)
+
+        # Altura de extrusión de crema (shadow layer para volumen)
+        crema_elevation = 3 * scale
+        if tilt > 5:
+            # Capa de sombra debajo de la crema (da efecto de volumen)
+            sombra_pen = QPen(QColor(200, 190, 160, 80), grosor_linea + 2,
+                             Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            painter.setPen(sombra_pen)
+            painter.setBrush(Qt.NoBrush)
+            self._dibujar_patron(painter, cx, crema_top_cy + crema_elevation * 0.5,
+                               radio_crema, progreso)
+
+        # Capa principal de crema
+        color_crema = QColor(255, 245, 220, 230)
         pen = QPen(color_crema, grosor_linea, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
+        self._dibujar_patron(painter, cx, crema_top_cy, radio_crema, progreso)
 
+        # Capa de highlight (brillo superior)
+        highlight_pen = QPen(QColor(255, 255, 245, 60), max(1, grosor_linea - 1),
+                           Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(highlight_pen)
+        self._dibujar_patron(painter, cx, crema_top_cy - 1, radio_crema, progreso)
+
+        painter.restore()
+
+    def _dibujar_texto_3d(self, painter, cx, cy, scale, tilt, progreso):
+        """Dibuja texto con efecto de extrusión 3D."""
+        if not self._texto:
+            return
+
+        r = 35 * scale
+        tilt_rad = math.radians(tilt)
+        h_visual = 8 * scale * math.sin(tilt_rad)
+        ry = r * math.cos(tilt_rad) if tilt > 2 else r
+        top_cy = cy - h_visual / 2
+        ancho_max = r * 0.5
+
+        progress_texto = min(100, (progreso - 60) * 100 / 40)
+        chars_visible = int(len(self._texto) * progress_texto / 100)
+        texto_visible = self._texto[:max(1, chars_visible)]
+
+        font_size = max(10, int(ancho_max / max(len(self._texto), 1) * 1.2))
+        font_size = min(font_size, 28)
+
+        painter.save()
+        if tilt > 2:
+            t = QTransform()
+            t.translate(cx, top_cy)
+            t.scale(1.0, max(ry / r, 0.3))
+            t.translate(-cx, -top_cy)
+            painter.setTransform(t, True)
+
+        rect = QRectF(cx - ancho_max, top_cy - 15, ancho_max * 2, 30)
+        font = QFont("Purisa", font_size, QFont.Bold)
+
+        # Extrusión: capas de sombra para volumen
+        extrusion_depth = 4 if tilt > 5 else 2
+        for d in range(extrusion_depth, 0, -1):
+            painter.setPen(QPen(QColor(100, 70, 30, 40 + d * 15), 1))
+            painter.setFont(font)
+            r_offset = QRectF(rect.x() + d * 0.5, rect.y() + d, rect.width(), rect.height())
+            painter.drawText(r_offset, Qt.AlignCenter, texto_visible)
+
+        # Texto principal
+        painter.setPen(QPen(QColor(180, 120, 60, 220), 1))
+        painter.setFont(font)
+        painter.drawText(rect, Qt.AlignCenter, texto_visible)
+
+        # Highlight
+        painter.setPen(QPen(QColor(240, 200, 140, 80), 1))
+        r_hl = QRectF(rect.x() - 0.5, rect.y() - 0.5, rect.width(), rect.height())
+        painter.drawText(r_hl, Qt.AlignCenter, texto_visible)
+
+        painter.restore()
+
+    # === Patrones ===
+
+    def _dibujar_patron(self, painter, cx, cy, radio_max, progreso):
+        """Dispatcher de patrones."""
         patron = self._patron.lower() if self._patron else "espiral"
 
         if "zigzag" in patron:
-            self._dibujar_patron_zigzag(painter, cx, cy, radio_max, progreso)
+            self._p_zigzag(painter, cx, cy, radio_max, progreso)
         elif "circulo" in patron:
-            self._dibujar_patron_circulos(painter, cx, cy, radio_max, progreso)
+            self._p_circulos(painter, cx, cy, radio_max, progreso)
         elif "rejilla" in patron:
-            self._dibujar_patron_rejilla(painter, cx, cy, radio_max, progreso)
+            self._p_rejilla(painter, cx, cy, radio_max, progreso)
         elif "relleno" in patron:
-            self._dibujar_patron_relleno(painter, cx, cy, radio_max, progreso)
+            self._p_relleno(painter, cx, cy, radio_max, progreso)
         elif "estrella" in patron:
-            self._dibujar_patron_estrella(painter, cx, cy, radio_max, progreso)
+            self._p_estrella(painter, cx, cy, radio_max, progreso)
         elif "corazon" in patron:
-            self._dibujar_patron_corazon(painter, cx, cy, radio_max, progreso)
+            self._p_corazon(painter, cx, cy, radio_max, progreso)
         elif "borde" in patron:
-            self._dibujar_patron_borde(painter, cx, cy, radio_max, progreso)
+            self._p_borde(painter, cx, cy, radio_max, progreso)
         elif "ondas" in patron:
-            self._dibujar_patron_ondas(painter, cx, cy, radio_max, progreso)
+            self._p_ondas(painter, cx, cy, radio_max, progreso)
         else:
-            self._dibujar_patron_espiral(painter, cx, cy, radio_max, progreso)
+            self._p_espiral(painter, cx, cy, radio_max, progreso)
 
-    def _dibujar_patron_espiral(self, painter, cx, cy, radio_max, progreso):
-        """Patrón espiral desde el centro."""
+    def _p_espiral(self, painter, cx, cy, radio_max, progreso):
         path = QPainterPath()
-        total_steps = 200
-        visible = int(total_steps * progreso / 100)
-        vueltas = 5
-
+        total, vueltas = 200, 5
+        visible = int(total * progreso / 100)
         if visible < 2:
             return
-
         for i in range(visible):
-            t = i / total_steps
-            angulo = t * vueltas * 2 * math.pi
+            t = i / total
+            a = t * vueltas * 2 * math.pi
             r = t * radio_max
-            x = cx + r * math.cos(angulo)
-            y = cy + r * math.sin(angulo)
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
-
+            x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+            path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
         painter.drawPath(path)
 
-    def _dibujar_patron_zigzag(self, painter, cx, cy, radio_max, progreso):
-        """Patrón zigzag horizontal."""
+    def _p_zigzag(self, painter, cx, cy, radio_max, progreso):
         lineas = 10
-        visible_lineas = int(lineas * progreso / 100)
-        margen = radio_max * 0.1
-
-        for i in range(max(1, visible_lineas)):
+        visible = max(1, int(lineas * progreso / 100))
+        m = radio_max * 0.1
+        for i in range(visible):
             t = (i + 0.5) / lineas
             y = cy - radio_max + t * 2 * radio_max
-            # Calcular intersección con círculo
             dy = abs(y - cy)
             if dy >= radio_max:
                 continue
             dx = math.sqrt(radio_max ** 2 - dy ** 2)
-            x1, x2 = cx - dx + margen, cx + dx - margen
+            x1, x2 = cx - dx + m, cx + dx - m
             if i % 2 == 0:
                 painter.drawLine(QPointF(x1, y), QPointF(x2, y))
             else:
                 painter.drawLine(QPointF(x2, y), QPointF(x1, y))
 
-    def _dibujar_patron_circulos(self, painter, cx, cy, radio_max, progreso):
-        """Círculos concéntricos."""
-        num_circulos = 6
-        visible = int(num_circulos * progreso / 100)
-        for i in range(1, max(2, visible + 1)):
-            r = (i / num_circulos) * radio_max
+    def _p_circulos(self, painter, cx, cy, radio_max, progreso):
+        n = 6
+        visible = max(2, int(n * progreso / 100) + 1)
+        for i in range(1, visible):
+            r = (i / n) * radio_max
             painter.drawEllipse(QPointF(cx, cy), r, r)
 
-    def _dibujar_patron_rejilla(self, painter, cx, cy, radio_max, progreso):
-        """Patrón de rejilla cruzada."""
-        lineas = 8
-        visible = int(lineas * progreso / 100)
-        for i in range(max(1, visible)):
-            t = (i + 0.5) / lineas
+    def _p_rejilla(self, painter, cx, cy, radio_max, progreso):
+        n = 8
+        visible = max(1, int(n * progreso / 100))
+        for i in range(visible):
+            t = (i + 0.5) / n
             pos = -radio_max + t * 2 * radio_max
             dy = abs(pos)
             if dy >= radio_max:
                 continue
             dx = math.sqrt(radio_max ** 2 - dy ** 2)
-            # Horizontal
             painter.drawLine(QPointF(cx - dx, cy + pos), QPointF(cx + dx, cy + pos))
-            # Vertical
             painter.drawLine(QPointF(cx + pos, cy - dx), QPointF(cx + pos, cy + dx))
 
-    def _dibujar_patron_relleno(self, painter, cx, cy, radio_max, progreso):
-        """Relleno completo (espiral densa)."""
+    def _p_relleno(self, painter, cx, cy, radio_max, progreso):
         path = QPainterPath()
-        total_steps = 300
-        visible = int(total_steps * progreso / 100)
-        vueltas = 12
-
+        total, vueltas = 300, 12
+        visible = int(total * progreso / 100)
         if visible < 2:
             return
-
         for i in range(visible):
-            t = i / total_steps
-            angulo = t * vueltas * 2 * math.pi
+            t = i / total
+            a = t * vueltas * 2 * math.pi
             r = t * radio_max
-            x = cx + r * math.cos(angulo)
-            y = cy + r * math.sin(angulo)
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
-
+            x, y = cx + r * math.cos(a), cy + r * math.sin(a)
+            path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
         painter.drawPath(path)
 
-    def _dibujar_patron_estrella(self, painter, cx, cy, radio_max, progreso):
-        """Patrón de estrella."""
+    def _p_estrella(self, painter, cx, cy, radio_max, progreso):
         puntas = 8
-        visible = int(puntas * 2 * progreso / 100)
+        visible = max(1, int(puntas * 2 * progreso / 100))
         path = QPainterPath()
-        for i in range(max(1, visible)):
-            angulo = (i * math.pi) / puntas
-            if i % 2 == 0:
-                r = radio_max
-            else:
-                r = radio_max * 0.4
-            x = cx + r * math.cos(angulo - math.pi / 2)
-            y = cy + r * math.sin(angulo - math.pi / 2)
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
+        for i in range(visible):
+            a = (i * math.pi) / puntas
+            r = radio_max if i % 2 == 0 else radio_max * 0.4
+            x = cx + r * math.cos(a - math.pi / 2)
+            y = cy + r * math.sin(a - math.pi / 2)
+            path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
         if visible > 2:
             path.closeSubpath()
         painter.drawPath(path)
 
-    def _dibujar_patron_corazon(self, painter, cx, cy, radio_max, progreso):
-        """Patrón de corazón."""
+    def _p_corazon(self, painter, cx, cy, radio_max, progreso):
         path = QPainterPath()
-        total_steps = 100
-        visible = int(total_steps * progreso / 100)
+        total = 100
+        visible = int(total * progreso / 100)
         if visible < 2:
             return
-        scale = radio_max / 17
+        s = radio_max / 17
         for i in range(visible):
-            t = (i / total_steps) * 2 * math.pi
+            t = (i / total) * 2 * math.pi
             x = 16 * math.sin(t) ** 3
             y = -(13 * math.cos(t) - 5 * math.cos(2*t) - 2 * math.cos(3*t) - math.cos(4*t))
-            px = cx + x * scale
-            py = cy + y * scale
-            if i == 0:
-                path.moveTo(px, py)
-            else:
-                path.lineTo(px, py)
+            px, py = cx + x * s, cy + y * s
+            path.moveTo(px, py) if i == 0 else path.lineTo(px, py)
         painter.drawPath(path)
 
-    def _dibujar_patron_borde(self, painter, cx, cy, radio_max, progreso):
-        """Borde decorativo circular."""
-        angulo_visible = 360 * progreso / 100
-        start = 90 * 16  # Qt usa 1/16 de grado
-        span = -int(angulo_visible * 16)
+    def _p_borde(self, painter, cx, cy, radio_max, progreso):
+        av = 360 * progreso / 100
+        start = 90 * 16
+        span = -int(av * 16)
         rect = QRectF(cx - radio_max, cy - radio_max, radio_max * 2, radio_max * 2)
         painter.drawArc(rect, start, span)
-        # Borde interior
         r2 = radio_max * 0.7
         rect2 = QRectF(cx - r2, cy - r2, r2 * 2, r2 * 2)
-        span2 = -int(angulo_visible * 0.8 * 16)
-        painter.drawArc(rect2, start, span2)
+        painter.drawArc(rect2, start, -int(av * 0.8 * 16))
 
-    def _dibujar_patron_ondas(self, painter, cx, cy, radio_max, progreso):
-        """Ondas paralelas."""
-        lineas = 8
-        visible = int(lineas * progreso / 100)
-        for i in range(max(1, visible)):
+    def _p_ondas(self, painter, cx, cy, radio_max, progreso):
+        n = 8
+        visible = max(1, int(n * progreso / 100))
+        for i in range(visible):
             path = QPainterPath()
-            t = (i + 0.5) / lineas
+            t = (i + 0.5) / n
             y_base = cy - radio_max + t * 2 * radio_max
             dy = abs(y_base - cy)
             if dy >= radio_max:
@@ -376,49 +572,58 @@ class AlfajorCanvas(QWidget):
             dx = math.sqrt(radio_max ** 2 - dy ** 2)
             steps = 40
             for j in range(steps):
-                frac = j / (steps - 1)
-                x = (cx - dx) + frac * 2 * dx
-                y = y_base + math.sin(frac * 4 * math.pi) * 8
-                if j == 0:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
+                f = j / (steps - 1)
+                x = (cx - dx) + f * 2 * dx
+                y = y_base + math.sin(f * 4 * math.pi) * 8
+                path.moveTo(x, y) if j == 0 else path.lineTo(x, y)
             painter.drawPath(path)
 
-    def _dibujar_texto(self, painter, cx, cy, ancho_max, progreso):
-        """Dibuja texto sobre la crema."""
-        if not self._texto:
-            return
+    # === UI ===
 
-        progress_texto = min(100, (progreso - 60) * 100 / 40)
-        chars_visible = int(len(self._texto) * progress_texto / 100)
-        texto_visible = self._texto[:max(1, chars_visible)]
-
-        painter.setPen(QPen(QColor(180, 120, 60, 200), 1))
-        font_size = max(10, int(ancho_max / max(len(self._texto), 1) * 1.2))
-        font_size = min(font_size, 28)
-        painter.setFont(QFont("Purisa", font_size, QFont.Bold))
-
-        rect = QRectF(cx - ancho_max, cy - 20, ancho_max * 2, 40)
-        painter.drawText(rect, Qt.AlignCenter, texto_visible)
-
-    def _dibujar_indicador_progreso(self, painter, cx, cy, radio):
-        """Dibuja indicador de progreso circular."""
-        # Fondo
+    def _dibujar_indicador_progreso(self, painter, cx, cy, size):
+        r = size * 0.48
         painter.setPen(QPen(QColor(60, 60, 60, 100), 3))
         painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(QPointF(cx, cy), radio, radio)
+        painter.drawEllipse(QPointF(cx, cy), r, r)
+        painter.setPen(QPen(QColor(77, 182, 172, 180), 3, Qt.SolidLine, Qt.RoundCap))
+        rect = QRectF(cx - r, cy - r, r * 2, r * 2)
+        painter.drawArc(rect, 90 * 16, -int(self._progreso * 3.6 * 16))
 
-        # Progreso
-        color = QColor(77, 182, 172, 180)
-        painter.setPen(QPen(color, 3, Qt.SolidLine, Qt.RoundCap))
-        rect = QRectF(cx - radio, cy - radio, radio * 2, radio * 2)
-        start = 90 * 16
-        span = -int(self._progreso * 3.6 * 16)
-        painter.drawArc(rect, start, span)
+    def _dibujar_ui(self, painter, w, h):
+        """Dibuja botones de vista en el lateral derecho y estado inferior."""
+        # === Botones de vista (lateral derecho) ===
+        self._btn_rects = []
+        btn_w, btn_h = 55, 55
+        margin_r = 8
+        spacing = 8
+        start_y = 10
+        icons = ["⬇", "◇", "↻"]
+        modes = [VIEW_TOP, VIEW_ISOMETRIC, VIEW_FREE]
 
-    def _dibujar_estado(self, painter, w, h):
-        """Dibuja el estado actual en la esquina inferior."""
+        for i, (icon, mode) in enumerate(zip(icons, modes)):
+            bx = w - btn_w - margin_r
+            by = start_y + i * (btn_h + spacing)
+            rect = QRectF(bx, by, btn_w, btn_h)
+            self._btn_rects.append((rect, mode))
+
+            # Fondo del botón
+            is_active = (self._view_mode == mode)
+            if is_active:
+                painter.setBrush(QBrush(QColor(77, 182, 172, 200)))
+                painter.setPen(QPen(QColor(77, 182, 172), 1.5))
+            else:
+                painter.setBrush(QBrush(QColor(50, 50, 55, 180)))
+                painter.setPen(QPen(QColor(80, 80, 85), 1))
+
+            painter.drawRoundedRect(rect, 8, 8)
+
+            # Icono
+            text_color = QColor(255, 255, 255) if is_active else QColor(160, 160, 165)
+            painter.setPen(QPen(text_color))
+            painter.setFont(QFont("Purisa", 20, QFont.Bold))
+            painter.drawText(rect, Qt.AlignCenter, icon)
+
+        # === Estado inferior ===
         if self._printing and self._progreso >= 100:
             texto = "✓ COMPLETADO"
             color = QColor(77, 182, 172, 200)
@@ -436,6 +641,5 @@ class AlfajorCanvas(QWidget):
             color = QColor(100, 100, 100, 120)
 
         painter.setPen(QPen(color))
-        painter.setFont(QFont("Purisa", 10))
-        rect = QRectF(0, h - 25, w, 20)
-        painter.drawText(rect, Qt.AlignCenter, texto)
+        painter.setFont(QFont("Purisa", 9))
+        painter.drawText(QRectF(0, h - 22, w, 18), Qt.AlignCenter, texto)
