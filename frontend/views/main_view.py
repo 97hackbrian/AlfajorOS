@@ -7,8 +7,9 @@ Integra AlfajorCanvas para visualizar la crema en tiempo real.
 """
 
 import os
-from PySide6.QtWidgets import QMainWindow, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QPushButton
 from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QFont
 
 from frontend.resources.ui_loader import load_ui
 from frontend.widgets.animated_button import aplicar_animacion_pulso
@@ -40,6 +41,9 @@ class MainView(QMainWindow):
 
         # Reemplazar el widget placeholder con AlfajorCanvas
         self._setup_alfajor_canvas()
+
+        # Añadir botón LIMPIAR
+        self._setup_boton_limpiar()
 
         # Conectar
         self._conectar_botones()
@@ -87,10 +91,59 @@ class MainView(QMainWindow):
                     return True
         return False
 
+    def _setup_boton_limpiar(self):
+        """Añade botón LIMPIAR entre Figura y PRO."""
+        self.btn_limpiar = QPushButton("LIMPIAR")
+        self.btn_limpiar.setMinimumSize(120, 65)
+        self.btn_limpiar.setMaximumSize(120, 65)
+        self.btn_limpiar.setFont(QFont("Purisa", 12, QFont.Bold))
+        self.btn_limpiar.setStyleSheet("""
+            QPushButton {
+                background-color: #FFAB40;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:pressed {
+                background-color: #e09530;
+            }
+        """)
+
+        # Insertar en el layout horizontal de la barra superior
+        # pushButton_2 = Figura, pushButton = PRO
+        # Buscar el layout que contiene pushButton (PRO)
+        pro_btn = self.pushButton
+        parent_widget = pro_btn.parentWidget()
+        if parent_widget and parent_widget.layout():
+            layout = parent_widget.layout()
+            # Buscar el índice del botón PRO
+            for i in range(layout.count()):
+                item = layout.itemAt(i)
+                if item.widget() == pro_btn:
+                    layout.insertWidget(i, self.btn_limpiar)
+                    break
+            else:
+                # Buscar en sublayouts
+                self._insert_before_in_layout(layout, pro_btn, self.btn_limpiar)
+
+    def _insert_before_in_layout(self, layout, target_widget, new_widget):
+        """Inserta new_widget antes de target_widget en cualquier sublayout."""
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item.widget() == target_widget:
+                layout.insertWidget(i, new_widget)
+                return True
+            elif item.layout():
+                if self._insert_before_in_layout(item.layout(), target_widget, new_widget):
+                    return True
+        return False
+
     def _conectar_botones(self):
         """Conecta los botones de la UI."""
         self.pushButton_3.clicked.connect(self._on_anadir_texto)   # Texto
         self.pushButton_2.clicked.connect(self._on_anadir_figura)  # Figura
+        self.btn_limpiar.clicked.connect(self._on_limpiar)         # Limpiar
         self.pushButton.clicked.connect(self._on_modo_pro)         # PRO
         self.pushButton_4.clicked.connect(self._on_stop)           # STOP
         self.pushButton_5.clicked.connect(self._on_print)          # Print
@@ -106,6 +159,7 @@ class MainView(QMainWindow):
         """Aplica animaciones de pulso a los botones."""
         aplicar_animacion_pulso(self.pushButton_3)
         aplicar_animacion_pulso(self.pushButton_2)
+        aplicar_animacion_pulso(self.btn_limpiar)
         aplicar_animacion_pulso(self.pushButton)
         aplicar_animacion_pulso(self.pushButton_4)
         aplicar_animacion_pulso(self.pushButton_5)
@@ -137,6 +191,19 @@ class MainView(QMainWindow):
         if self.engine.is_extruding:
             self.engine.stop()
             self.impresion_terminada.emit()
+
+    def _on_limpiar(self):
+        """Reinicia todo: progreso, canvas, y motor."""
+        self.actividad_detectada.emit()
+        if self.engine.is_extruding:
+            self.engine.stop()
+            self.impresion_terminada.emit()
+        self.engine.reset()
+        self.canvas.reset()
+        self.progressBar.setValue(0)
+        self.pushButton_4.setEnabled(False)
+        self.pushButton_5.setEnabled(True)
+        self.statusbar.showMessage(f"Todo reiniciado. Listo para decorar.")
 
     def _on_print(self):
         self.actividad_detectada.emit()
