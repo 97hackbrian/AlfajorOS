@@ -32,14 +32,15 @@
     python3 main.py
 
   Requisitos:
-    pip install PyQt5
+    pip install PySide6
 """
 
 import sys
 import os
 
-from PyQt5.QtWidgets import QApplication, QInputDialog, QLineEdit, QMessageBox
-from PyQt5.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
 
 # Importar módulos del proyecto
 from login_window import LoginWindow
@@ -49,6 +50,7 @@ from text_options import TextOptionsWindow
 from figure_options import FigureOptionsWindow
 from pro_mode import ProModeWindow
 from example_window import ExampleWindow
+from password_dialog import PasswordDialog
 
 
 class AppController:
@@ -92,6 +94,9 @@ class AppController:
         self.main_win.abrir_figura.connect(self._on_abrir_figura)
         self.main_win.abrir_pro.connect(self._on_abrir_pro)
         self.main_win.actividad_detectada.connect(self._on_actividad)
+        # Bloquear screensaver durante impresión
+        self.main_win.impresion_iniciada.connect(self.screensaver.bloquear)
+        self.main_win.impresion_terminada.connect(self.screensaver.desbloquear)
 
     def _conectar_text_opts(self):
         """Conecta señales de opciones de texto."""
@@ -153,11 +158,12 @@ class AppController:
 
     def _on_abrir_pro(self):
         """Abrir modo PRO - requiere contrasena."""
-        password, ok = QInputDialog.getText(
-            self.main_win, "Modo PRO",
-            "Ingrese la contrasena para Modo PRO:",
-            QLineEdit.Password
+        dialog = PasswordDialog(
+            titulo="Modo PRO",
+            mensaje="Ingrese la contrasena para Modo PRO:",
+            parent=self.main_win
         )
+        password, ok = dialog.get_password()
         if ok and password == "pro2026":
             self._posicionar_ventana(self.pro_mode)
             self.pro_mode.show()
@@ -225,13 +231,12 @@ class AppController:
 
 def main():
     """Función principal."""
-    # Habilitar High DPI
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-
     app = QApplication(sys.argv)
     app.setApplicationName("Proyecto de Grado - Extrusora de Crema")
     app.setOrganizationName("Universidad")
+
+    # Ocultar cursor del mouse globalmente (proyecto táctil)
+    app.setOverrideCursor(QCursor(Qt.BlankCursor))
 
     # Estilo global oscuro
     app.setStyleSheet("""
@@ -245,8 +250,8 @@ def main():
             background-color: #1e1e1e;
             color: #4DB6AC;
             font-family: Purisa;
-            font-size: 12px;
-            padding: 4px;
+            font-size: 16px;
+            padding: 6px;
         }
         QMenuBar {
             background-color: #1e1e1e;
@@ -325,7 +330,7 @@ def main():
     controller = AppController()
     controller.iniciar()
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

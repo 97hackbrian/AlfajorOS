@@ -6,9 +6,9 @@ Carga ventana_4.ui para seleccionar patrones decorativos y grosor de crema.
 """
 
 import os
-from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import pyqtSignal, QStringListModel
-from PyQt5 import uic
+from PySide6.QtWidgets import QMainWindow, QMessageBox
+from PySide6.QtCore import Signal, QStringListModel
+from ui_loader import load_ui
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -16,10 +16,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class FigureOptionsWindow(QMainWindow):
     """Ventana de opciones de patron decorativo (ventana_4.ui)."""
 
-    figura_configurada = pyqtSignal(str, int)  # (patron, grosor)
-    ir_atras = pyqtSignal()
-    ir_siguiente = pyqtSignal()
-    actividad_detectada = pyqtSignal()
+    figura_configurada = Signal(str, int)  # (patron, grosor)
+    ir_atras = Signal()
+    ir_siguiente = Signal()
+    actividad_detectada = Signal()
 
     FIGURAS = [
         "Espiral clasica",
@@ -37,7 +37,7 @@ class FigureOptionsWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         ui_path = os.path.join(BASE_DIR, "ventana_4.ui")
-        uic.loadUi(ui_path, self)
+        load_ui(ui_path, self)
 
         self.setWindowTitle("Patron Decorativo")
         self._configurar_lista()

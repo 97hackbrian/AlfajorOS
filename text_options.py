@@ -3,12 +3,14 @@
 """
 Ventana de Opciones de Texto - Proyecto de Grado
 Carga ventana_2.ui para configurar texto a decorar en el alfajor.
+Incluye teclado virtual para pantalla táctil.
 """
 
 import os
-from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import pyqtSignal
-from PyQt5 import uic
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from ui_loader import load_ui
+from virtual_keyboard import VirtualKeyboard
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -16,18 +18,42 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class TextOptionsWindow(QMainWindow):
     """Ventana para configurar opciones de texto (ventana_2.ui)."""
 
-    texto_configurado = pyqtSignal(str)  # Emite el texto ingresado
-    ir_siguiente = pyqtSignal()          # Volver al panel principal
-    ir_atras = pyqtSignal()              # Volver al menú principal
-    actividad_detectada = pyqtSignal()
+    texto_configurado = Signal(str)  # Emite el texto ingresado
+    ir_siguiente = Signal()          # Volver al panel principal
+    ir_atras = Signal()              # Volver al menú principal
+    actividad_detectada = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         ui_path = os.path.join(BASE_DIR, "ventana_2.ui")
-        uic.loadUi(ui_path, self)
+        load_ui(ui_path, self)
 
         self.setWindowTitle("Opciones de Texto")
+
+        # Crear teclado virtual y añadirlo al layout
+        self._setup_keyboard()
         self._conectar_botones()
+
+    def _setup_keyboard(self):
+        """Configura el teclado virtual debajo del campo de texto."""
+        self.keyboard = VirtualKeyboard()
+        self.keyboard.set_target(self.textEdit)
+
+        # Insertar el teclado en el layout principal del centralwidget
+        central = self.centralWidget()
+        if central and central.layout():
+            layout = central.layout()
+            # Remover el spacer si existe (bottomSpacer)
+            for i in range(layout.count() - 1, -1, -1):
+                item = layout.itemAt(i)
+                if item.spacerItem():
+                    layout.removeItem(item)
+                    break
+            # Reducir la altura mínima del textEdit para dar espacio al teclado
+            self.textEdit.setMinimumHeight(100)
+            self.textEdit.setMaximumHeight(120)
+            # Añadir teclado
+            layout.addWidget(self.keyboard)
 
     def _conectar_botones(self):
         """Conecta botones de la UI."""
@@ -47,7 +73,7 @@ class TextOptionsWindow(QMainWindow):
             self.textEdit.setPlainText(texto[:10])
             # Mover cursor al final
             cursor = self.textEdit.textCursor()
-            cursor.movePosition(cursor.End)
+            cursor.movePosition(cursor.MoveOperation.End)
             self.textEdit.setTextCursor(cursor)
             self.textEdit.blockSignals(False)
 

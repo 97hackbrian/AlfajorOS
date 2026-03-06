@@ -6,9 +6,9 @@ Carga ventana_3.ui para seleecionar tipo de producto.
 """
 
 import os
-from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import pyqtSignal
-from PyQt5 import uic
+from PySide6.QtWidgets import QMainWindow, QMessageBox
+from PySide6.QtCore import Signal
+from ui_loader import load_ui
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -16,14 +16,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class ProductSelectionWindow(QMainWindow):
     """Ventana de selección de producto (ventana_3.ui)."""
 
-    producto_seleccionado = pyqtSignal(str)  # Emite "MACARRON" o "ALFAJOR"
-    ir_atras = pyqtSignal()
-    actividad_detectada = pyqtSignal()
+    producto_seleccionado = Signal(str)  # Emite "MACARRON" o "ALFAJOR"
+    ir_atras = Signal()
+    actividad_detectada = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         ui_path = os.path.join(BASE_DIR, "ventana_3.ui")
-        uic.loadUi(ui_path, self)
+        load_ui(ui_path, self)
 
         self.setWindowTitle("Selección de Producto")
         self._conectar_botones()

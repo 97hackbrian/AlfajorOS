@@ -7,18 +7,18 @@ El modo basico no requiere contrasena.
 El modo PRO se protege con contrasena desde el panel principal.
 """
 
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel,
     QPushButton, QFrame
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont
 
 
 class LoginWindow(QWidget):
     """Pantalla de inicio simple con boton de entrar."""
 
-    login_exitoso = pyqtSignal(str)  # Emite "basico" al iniciar
+    login_exitoso = Signal(str)  # Emite "basico" al iniciar
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -75,7 +75,6 @@ class LoginWindow(QWidget):
         self.btn_login = QPushButton("INICIAR")
         self.btn_login.setMinimumHeight(80)
         self.btn_login.setFont(QFont("Purisa", 20, QFont.Bold))
-        self.btn_login.setCursor(Qt.PointingHandCursor)
         self.btn_login.clicked.connect(self._on_iniciar)
         layout.addWidget(self.btn_login)
 

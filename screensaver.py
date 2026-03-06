@@ -4,13 +4,14 @@
 Protector de Pantalla - Proyecto de Grado
 Se activa tras un periodo de inactividad del usuario.
 Muestra una animación de partículas flotantes y el reloj.
+No se activa durante el proceso de impresión.
 """
 
 import math
 import random
-from PyQt5.QtWidgets import QWidget, QApplication
-from PyQt5.QtCore import Qt, QTimer, QPointF, QRectF
-from PyQt5.QtGui import (
+from PySide6.QtWidgets import QWidget, QApplication
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
+from PySide6.QtGui import (
     QPainter, QColor, QFont, QPen, QBrush,
     QLinearGradient, QRadialGradient
 )
@@ -59,11 +60,16 @@ class ScreensaverWindow(QWidget):
         super().__init__(parent)
         self.timeout_ms = timeout_seconds * 1000
         self.tiempo = 0.0
+        self.bloqueado = False  # Si True, no se activa (ej: durante impresión)
 
-        # Configuración de ventana
+        # Configuración de ventana - máxima prioridad de z-order
         self.setWindowTitle("Protector de Pantalla")
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        self.setCursor(Qt.BlankCursor)
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.WindowStaysOnTopHint |
+            Qt.FramelessWindowHint |
+            Qt.X11BypassWindowManagerHint  # Asegura que esté por encima de todo en Linux
+        )
 
         # Partículas
         self.particulas = []
@@ -91,6 +97,10 @@ class ScreensaverWindow(QWidget):
 
     def activar(self):
         """Activa el protector de pantalla."""
+        # No activar si está bloqueado (durante impresión)
+        if self.bloqueado:
+            return
+
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.geometry()
@@ -99,17 +109,21 @@ class ScreensaverWindow(QWidget):
         self._inicializar_particulas()
         self.tiempo = 0.0
         self.showFullScreen()
+        self.raise_()
+        self.activateWindow()
         self.timer_animacion.start(33)  # ~30 FPS
 
     def desactivar(self):
         """Desactiva el protector de pantalla."""
         self.timer_animacion.stop()
         self.hide()
-        self.setCursor(Qt.ArrowCursor)
-        self.reiniciar_timer_inactividad()
+        if not self.bloqueado:
+            self.reiniciar_timer_inactividad()
 
     def reiniciar_timer_inactividad(self):
         """Reinicia el timer de inactividad."""
+        if self.bloqueado:
+            return
         self.timer_inactividad.stop()
         self.timer_inactividad.start(self.timeout_ms)
 
@@ -117,11 +131,28 @@ class ScreensaverWindow(QWidget):
         """Detiene el timer de inactividad."""
         self.timer_inactividad.stop()
 
+    def bloquear(self):
+        """Bloquea el screensaver (no se activará)."""
+        self.bloqueado = True
+        self.timer_inactividad.stop()
+        # Si está activo, desactivar
+        if self.timer_animacion.isActive():
+            self.timer_animacion.stop()
+            self.hide()
+
+    def desbloquear(self):
+        """Desbloquea el screensaver y reinicia timer."""
+        self.bloqueado = False
+        self.reiniciar_timer_inactividad()
+
     def _actualizar_animacion(self):
         """Actualiza el estado de la animación."""
         self.tiempo += 0.03
         for p in self.particulas:
             p.actualizar(self.tiempo)
+
+        # Asegurar que se mantenga al frente
+        self.raise_()
         self.update()
 
     def paintEvent(self, event):

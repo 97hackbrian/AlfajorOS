@@ -6,9 +6,9 @@ Carga EJEMPLO_1.ui como ventana de confirmación.
 """
 
 import os
-from PyQt5.QtWidgets import QMainWindow, QMessageBox
-from PyQt5.QtCore import pyqtSignal
-from PyQt5 import uic
+from PySide6.QtWidgets import QMainWindow, QMessageBox
+from PySide6.QtCore import Signal
+from ui_loader import load_ui
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -16,13 +16,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class ExampleWindow(QMainWindow):
     """Ventana de ejemplo/confirmación (EJEMPLO_1.ui)."""
 
-    confirmado = pyqtSignal(bool)  # True = SI, False = NO
-    actividad_detectada = pyqtSignal()
+    confirmado = Signal(bool)  # True = SI, False = NO
+    actividad_detectada = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         ui_path = os.path.join(BASE_DIR, "EJEMPLO_1.ui")
-        uic.loadUi(ui_path, self)
+        load_ui(ui_path, self)
 
         self.setWindowTitle("Confirmación")
         self._conectar_botones()

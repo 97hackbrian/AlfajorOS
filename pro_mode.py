@@ -6,21 +6,22 @@ Ventana avanzada con controles profesionales para la extrusora de crema.
 Incluye control de temperatura, presion, velocidad, patrones y G-code.
 """
 
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QSlider, QSpinBox, QDoubleSpinBox,
     QComboBox, QGroupBox, QProgressBar, QTextEdit, QTabWidget,
     QCheckBox, QFrame, QMessageBox, QStatusBar, QDial
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QFont, QColor
+from virtual_keyboard import VirtualKeyboard
 
 
 class ProModeWindow(QMainWindow):
     """Ventana de Modo PRO con controles avanzados."""
 
-    volver_basico = pyqtSignal()
-    actividad_detectada = pyqtSignal()
+    volver_basico = Signal()
+    actividad_detectada = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -414,6 +415,11 @@ class ProModeWindow(QMainWindow):
         h_btn.addWidget(btn_ejemplo)
 
         layout.addLayout(h_btn)
+
+        # Teclado virtual para G-Code
+        self.keyboard_gcode = VirtualKeyboard()
+        self.keyboard_gcode.set_target(self.txt_gcode)
+        layout.addWidget(self.keyboard_gcode)
 
         return widget
 
