@@ -216,6 +216,7 @@ class MainView(QMainWindow):
             QMessageBox.Yes | QMessageBox.No
         )
         if respuesta == QMessageBox.Yes:
+            self.canvas.start_animacion()
             self.engine.start()
             self.pushButton_4.setEnabled(True)
             self.pushButton_5.setEnabled(False)
@@ -228,6 +229,7 @@ class MainView(QMainWindow):
     def _on_finished(self):
         self.pushButton_4.setEnabled(False)
         self.pushButton_5.setEnabled(True)
+        self.canvas.stop_animacion()
         self.impresion_terminada.emit()
         QMessageBox.information(self, "Completado",
                                 "¡La extrusión de crema ha finalizado!")
@@ -236,6 +238,7 @@ class MainView(QMainWindow):
         self.pushButton_4.setEnabled(False)
         self.pushButton_5.setEnabled(True)
         self.progressBar.setValue(0)
+        self.canvas.stop_animacion()
         self.canvas.set_progreso(0)
         QMessageBox.warning(self, "Detenido",
                             "La extrusión fue detenida.\nProgreso reiniciado.")

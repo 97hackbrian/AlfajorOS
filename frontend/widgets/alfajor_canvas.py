@@ -23,11 +23,12 @@ class AlfajorCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._progreso = 0          # 0-100
+        self._progreso = 0          # 0-100 (progreso real de extrusión)
         self._patron = ""
         self._texto = ""
         self._grosor = 50           # % grosor crema
         self._animacion_t = 0.0     # Tiempo de animación
+        self._printing = False      # True = modo impresión (progresivo)
 
         # Timer para animación sutil del alfajor
         self._timer_anim = QTimer(self)
@@ -36,6 +37,16 @@ class AlfajorCanvas(QWidget):
 
         self.setMinimumSize(300, 300)
         self.setStyleSheet("background-color: #1e1e1e; border: 2px solid #4DB6AC; border-radius: 10px;")
+
+    @property
+    def _render_progreso(self):
+        """Progreso a usar para renderizado: 100 en preview, real durante impresión."""
+        if self._printing:
+            return self._progreso
+        elif self._patron or self._texto:
+            return 100  # Preview: mostrar todo
+        else:
+            return 0
 
     # === API pública ===
 
@@ -65,6 +76,18 @@ class AlfajorCanvas(QWidget):
         self._patron = ""
         self._texto = ""
         self._grosor = 50
+        self._printing = False
+        self.update()
+
+    def start_animacion(self):
+        """Cambia a modo impresión (progresivo)."""
+        self._printing = True
+        self._progreso = 0
+        self.update()
+
+    def stop_animacion(self):
+        """Vuelve a modo preview (muestra todo)."""
+        self._printing = False
         self.update()
 
     # === Dibujo ===
@@ -91,16 +114,17 @@ class AlfajorCanvas(QWidget):
         radio_alfajor = size * 0.40
         self._dibujar_alfajor(painter, cx, cy, radio_alfajor)
 
-        # Crema según progreso
-        if self._progreso > 0 or self._patron:
-            self._dibujar_crema(painter, cx, cy, radio_alfajor * 0.85)
+        # Crema según patrón/preview
+        rp = self._render_progreso
+        if rp > 0 or self._patron:
+            self._dibujar_crema(painter, cx, cy, radio_alfajor * 0.85, rp)
 
         # Texto sobre la crema
-        if self._texto and self._progreso > 60:
-            self._dibujar_texto(painter, cx, cy, radio_alfajor * 0.5)
+        if self._texto and rp > 60:
+            self._dibujar_texto(painter, cx, cy, radio_alfajor * 0.5, rp)
 
-        # Indicador de progreso en borde
-        if self._progreso > 0 and self._progreso < 100:
+        # Indicador de progreso en borde (solo durante impresión)
+        if self._printing and self._progreso > 0 and self._progreso < 100:
             self._dibujar_indicador_progreso(painter, cx, cy, radio_alfajor + 25)
 
         # Label de estado
@@ -165,7 +189,7 @@ class AlfajorCanvas(QWidget):
         painter.setPen(QPen(QColor(220, 185, 140, 60), 2))
         painter.drawEllipse(QPointF(cx, cy), radio - 3, radio - 3)
 
-    def _dibujar_crema(self, painter, cx, cy, radio_max):
+    def _dibujar_crema(self, painter, cx, cy, radio_max, progreso):
         """Dibuja la crema según el patrón y progreso."""
         grosor_linea = 2 + (self._grosor / 100) * 6
         color_crema = QColor(255, 245, 220, 220)
@@ -176,29 +200,29 @@ class AlfajorCanvas(QWidget):
         patron = self._patron.lower() if self._patron else "espiral"
 
         if "zigzag" in patron:
-            self._dibujar_patron_zigzag(painter, cx, cy, radio_max)
+            self._dibujar_patron_zigzag(painter, cx, cy, radio_max, progreso)
         elif "circulo" in patron:
-            self._dibujar_patron_circulos(painter, cx, cy, radio_max)
+            self._dibujar_patron_circulos(painter, cx, cy, radio_max, progreso)
         elif "rejilla" in patron:
-            self._dibujar_patron_rejilla(painter, cx, cy, radio_max)
+            self._dibujar_patron_rejilla(painter, cx, cy, radio_max, progreso)
         elif "relleno" in patron:
-            self._dibujar_patron_relleno(painter, cx, cy, radio_max)
+            self._dibujar_patron_relleno(painter, cx, cy, radio_max, progreso)
         elif "estrella" in patron:
-            self._dibujar_patron_estrella(painter, cx, cy, radio_max)
+            self._dibujar_patron_estrella(painter, cx, cy, radio_max, progreso)
         elif "corazon" in patron:
-            self._dibujar_patron_corazon(painter, cx, cy, radio_max)
+            self._dibujar_patron_corazon(painter, cx, cy, radio_max, progreso)
         elif "borde" in patron:
-            self._dibujar_patron_borde(painter, cx, cy, radio_max)
+            self._dibujar_patron_borde(painter, cx, cy, radio_max, progreso)
         elif "ondas" in patron:
-            self._dibujar_patron_ondas(painter, cx, cy, radio_max)
+            self._dibujar_patron_ondas(painter, cx, cy, radio_max, progreso)
         else:
-            self._dibujar_patron_espiral(painter, cx, cy, radio_max)
+            self._dibujar_patron_espiral(painter, cx, cy, radio_max, progreso)
 
-    def _dibujar_patron_espiral(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_espiral(self, painter, cx, cy, radio_max, progreso):
         """Patrón espiral desde el centro."""
         path = QPainterPath()
         total_steps = 200
-        visible = int(total_steps * self._progreso / 100)
+        visible = int(total_steps * progreso / 100)
         vueltas = 5
 
         if visible < 2:
@@ -217,10 +241,10 @@ class AlfajorCanvas(QWidget):
 
         painter.drawPath(path)
 
-    def _dibujar_patron_zigzag(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_zigzag(self, painter, cx, cy, radio_max, progreso):
         """Patrón zigzag horizontal."""
         lineas = 10
-        visible_lineas = int(lineas * self._progreso / 100)
+        visible_lineas = int(lineas * progreso / 100)
         margen = radio_max * 0.1
 
         for i in range(max(1, visible_lineas)):
@@ -237,18 +261,18 @@ class AlfajorCanvas(QWidget):
             else:
                 painter.drawLine(QPointF(x2, y), QPointF(x1, y))
 
-    def _dibujar_patron_circulos(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_circulos(self, painter, cx, cy, radio_max, progreso):
         """Círculos concéntricos."""
         num_circulos = 6
-        visible = int(num_circulos * self._progreso / 100)
+        visible = int(num_circulos * progreso / 100)
         for i in range(1, max(2, visible + 1)):
             r = (i / num_circulos) * radio_max
             painter.drawEllipse(QPointF(cx, cy), r, r)
 
-    def _dibujar_patron_rejilla(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_rejilla(self, painter, cx, cy, radio_max, progreso):
         """Patrón de rejilla cruzada."""
         lineas = 8
-        visible = int(lineas * self._progreso / 100)
+        visible = int(lineas * progreso / 100)
         for i in range(max(1, visible)):
             t = (i + 0.5) / lineas
             pos = -radio_max + t * 2 * radio_max
@@ -261,11 +285,11 @@ class AlfajorCanvas(QWidget):
             # Vertical
             painter.drawLine(QPointF(cx + pos, cy - dx), QPointF(cx + pos, cy + dx))
 
-    def _dibujar_patron_relleno(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_relleno(self, painter, cx, cy, radio_max, progreso):
         """Relleno completo (espiral densa)."""
         path = QPainterPath()
         total_steps = 300
-        visible = int(total_steps * self._progreso / 100)
+        visible = int(total_steps * progreso / 100)
         vueltas = 12
 
         if visible < 2:
@@ -284,10 +308,10 @@ class AlfajorCanvas(QWidget):
 
         painter.drawPath(path)
 
-    def _dibujar_patron_estrella(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_estrella(self, painter, cx, cy, radio_max, progreso):
         """Patrón de estrella."""
         puntas = 8
-        visible = int(puntas * 2 * self._progreso / 100)
+        visible = int(puntas * 2 * progreso / 100)
         path = QPainterPath()
         for i in range(max(1, visible)):
             angulo = (i * math.pi) / puntas
@@ -305,11 +329,11 @@ class AlfajorCanvas(QWidget):
             path.closeSubpath()
         painter.drawPath(path)
 
-    def _dibujar_patron_corazon(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_corazon(self, painter, cx, cy, radio_max, progreso):
         """Patrón de corazón."""
         path = QPainterPath()
         total_steps = 100
-        visible = int(total_steps * self._progreso / 100)
+        visible = int(total_steps * progreso / 100)
         if visible < 2:
             return
         scale = radio_max / 17
@@ -325,9 +349,9 @@ class AlfajorCanvas(QWidget):
                 path.lineTo(px, py)
         painter.drawPath(path)
 
-    def _dibujar_patron_borde(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_borde(self, painter, cx, cy, radio_max, progreso):
         """Borde decorativo circular."""
-        angulo_visible = 360 * self._progreso / 100
+        angulo_visible = 360 * progreso / 100
         start = 90 * 16  # Qt usa 1/16 de grado
         span = -int(angulo_visible * 16)
         rect = QRectF(cx - radio_max, cy - radio_max, radio_max * 2, radio_max * 2)
@@ -338,10 +362,10 @@ class AlfajorCanvas(QWidget):
         span2 = -int(angulo_visible * 0.8 * 16)
         painter.drawArc(rect2, start, span2)
 
-    def _dibujar_patron_ondas(self, painter, cx, cy, radio_max):
+    def _dibujar_patron_ondas(self, painter, cx, cy, radio_max, progreso):
         """Ondas paralelas."""
         lineas = 8
-        visible = int(lineas * self._progreso / 100)
+        visible = int(lineas * progreso / 100)
         for i in range(max(1, visible)):
             path = QPainterPath()
             t = (i + 0.5) / lineas
@@ -361,12 +385,12 @@ class AlfajorCanvas(QWidget):
                     path.lineTo(x, y)
             painter.drawPath(path)
 
-    def _dibujar_texto(self, painter, cx, cy, ancho_max):
+    def _dibujar_texto(self, painter, cx, cy, ancho_max, progreso):
         """Dibuja texto sobre la crema."""
         if not self._texto:
             return
 
-        progress_texto = min(100, (self._progreso - 60) * 100 / 40)
+        progress_texto = min(100, (progreso - 60) * 100 / 40)
         chars_visible = int(len(self._texto) * progress_texto / 100)
         texto_visible = self._texto[:max(1, chars_visible)]
 
@@ -395,14 +419,17 @@ class AlfajorCanvas(QWidget):
 
     def _dibujar_estado(self, painter, w, h):
         """Dibuja el estado actual en la esquina inferior."""
-        if self._progreso >= 100:
+        if self._printing and self._progreso >= 100:
             texto = "✓ COMPLETADO"
             color = QColor(77, 182, 172, 200)
-        elif self._progreso > 0:
+        elif self._printing and self._progreso > 0:
             texto = f"EXTRUYENDO... {self._progreso}%"
             color = QColor(255, 171, 64, 200)
         elif self._patron:
-            texto = f"Patrón: {self._patron}"
+            texto = f"Vista previa: {self._patron}"
+            color = QColor(150, 150, 150, 150)
+        elif self._texto:
+            texto = f"Vista previa: '{self._texto}'"
             color = QColor(150, 150, 150, 150)
         else:
             texto = "Listo para decorar"
