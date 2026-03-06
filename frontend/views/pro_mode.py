@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QColor
-from virtual_keyboard import VirtualKeyboard
+from frontend.widgets.virtual_keyboard import VirtualKeyboard
 
 
 class ProModeWindow(QMainWindow):

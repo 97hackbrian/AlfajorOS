@@ -8,7 +8,7 @@ Carga ventana_3.ui para seleecionar tipo de producto.
 import os
 from PySide6.QtWidgets import QMainWindow, QMessageBox
 from PySide6.QtCore import Signal
-from ui_loader import load_ui
+from frontend.resources.ui_loader import load_ui
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
