@@ -3,11 +3,15 @@
 """
 Main View - Proyecto de Grado
 Ventana principal con visualización del alfajor y controles de extrusión.
-Integra AlfajorCanvas para visualizar la crema en tiempo real.
+Layout: barra superior (.ui) con Extruir/STOP/PRO +
+        columna izquierda (Texto/Patrón/Limpiar) + canvas derecho.
 """
 
 import os
-from PySide6.QtWidgets import QMainWindow, QMessageBox, QPushButton
+from PySide6.QtWidgets import (
+    QMainWindow, QMessageBox, QPushButton, QVBoxLayout,
+    QHBoxLayout, QWidget, QSizePolicy
+)
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont
 
@@ -16,6 +20,22 @@ from frontend.widgets.animated_button import aplicar_animacion_pulso
 from frontend.widgets.alfajor_canvas import AlfajorCanvas
 from backend.config import SystemConfig
 from backend.extruder import ExtruderEngine
+
+
+# Estilo celeste para botones laterales
+BTN_LATERAL_STYLE = """
+    QPushButton {
+        background-color: #4DB6AC;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: bold;
+        font-family: Purisa;
+    }
+    QPushButton:pressed {
+        background-color: #3d9e95;
+    }
+"""
 
 
 class MainView(QMainWindow):
@@ -35,15 +55,18 @@ class MainView(QMainWindow):
         # Motor de extrusión (backend)
         self.engine = ExtruderEngine(self)
 
-        # Cargar UI
+        # Cargar UI (mantiene barra superior con Extruir/STOP/PRO)
         load_ui("ventana_1_v2.ui", self)
         self.setWindowTitle(f"Extrusora de Crema — {self.usuario}")
 
         # Reemplazar el widget placeholder con AlfajorCanvas
         self._setup_alfajor_canvas()
 
-        # Añadir botón LIMPIAR
-        self._setup_boton_limpiar()
+        # Añadir columna izquierda con Texto/Patrón/Limpiar
+        self._setup_columna_izquierda()
+
+        # Ocultar botones de Texto y Figura del .ui (se reemplazan por la columna)
+        self._ocultar_botones_ui()
 
         # Conectar
         self._conectar_botones()
@@ -55,29 +78,23 @@ class MainView(QMainWindow):
         """Reemplaza el openGLWidget placeholder con AlfajorCanvas."""
         self.canvas = AlfajorCanvas(self)
 
-        # Buscar el openGLWidget cargado del .ui y reemplazarlo
         if hasattr(self, 'openGLWidget'):
             old_widget = self.openGLWidget
             parent_layout = old_widget.parentWidget()
 
-            # Buscar el layout que contiene al widget
             if parent_layout and parent_layout.layout():
                 layout = parent_layout.layout()
-                # Buscar en todos los items del layout
                 self._replace_in_layout(layout, old_widget, self.canvas)
             else:
-                # Fallback: reemplazar propiedades y posición
                 self.canvas.setParent(old_widget.parentWidget())
                 self.canvas.setGeometry(old_widget.geometry())
                 self.canvas.setMinimumSize(old_widget.minimumSize())
                 old_widget.hide()
 
-            # Copiar propiedades de tamaño
             self.canvas.setMinimumSize(old_widget.minimumSize())
             self.canvas.setSizePolicy(old_widget.sizePolicy())
 
     def _replace_in_layout(self, layout, old_widget, new_widget):
-        """Reemplaza un widget dentro de un layout."""
         for i in range(layout.count()):
             item = layout.itemAt(i)
             if item.widget() == old_widget:
@@ -91,75 +108,93 @@ class MainView(QMainWindow):
                     return True
         return False
 
-    def _setup_boton_limpiar(self):
-        """Añade botón LIMPIAR entre Figura y PRO."""
-        self.btn_limpiar = QPushButton("LIMPIAR")
-        self.btn_limpiar.setMinimumSize(120, 65)
-        self.btn_limpiar.setMaximumSize(120, 65)
-        self.btn_limpiar.setFont(QFont("Purisa", 12, QFont.Bold))
-        self.btn_limpiar.setStyleSheet("""
-            QPushButton {
-                background-color: #FFAB40;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: bold;
-            }
-            QPushButton:pressed {
-                background-color: #e09530;
-            }
-        """)
+    def _setup_columna_izquierda(self):
+        """Añade columna izquierda con Texto/Patrón/Limpiar al lado del canvas."""
+        # Crear la columna
+        self._left_col = QWidget()
+        left_layout = QVBoxLayout(self._left_col)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
 
-        # Insertar en el layout horizontal de la barra superior
-        # pushButton_2 = Figura, pushButton = PRO
-        # Buscar el layout que contiene pushButton (PRO)
-        pro_btn = self.pushButton
-        parent_widget = pro_btn.parentWidget()
-        if parent_widget and parent_widget.layout():
-            layout = parent_widget.layout()
-            # Buscar el índice del botón PRO
+        btn_font = QFont("Purisa", 11, QFont.Bold)
+
+        # Botón TEXTO
+        self.btn_texto = QPushButton("📝\nTEXTO")
+        self.btn_texto.setMinimumSize(90, 65)
+        self.btn_texto.setFont(btn_font)
+        self.btn_texto.setStyleSheet(BTN_LATERAL_STYLE)
+        self.btn_texto.clicked.connect(self._on_anadir_texto)
+        left_layout.addWidget(self.btn_texto)
+
+        # Botón PATRÓN
+        self.btn_patron = QPushButton("🎨\nPATRÓN")
+        self.btn_patron.setMinimumSize(90, 65)
+        self.btn_patron.setFont(btn_font)
+        self.btn_patron.setStyleSheet(BTN_LATERAL_STYLE)
+        self.btn_patron.clicked.connect(self._on_anadir_figura)
+        left_layout.addWidget(self.btn_patron)
+
+        # Botón LIMPIAR
+        self.btn_limpiar = QPushButton("🗑\nLIMPIAR")
+        self.btn_limpiar.setMinimumSize(90, 65)
+        self.btn_limpiar.setFont(btn_font)
+        self.btn_limpiar.setStyleSheet(BTN_LATERAL_STYLE)
+        self.btn_limpiar.clicked.connect(self._on_limpiar)
+        left_layout.addWidget(self.btn_limpiar)
+
+        left_layout.addStretch(1)
+
+        self._left_col.setFixedWidth(100)
+
+        # Insertar la columna a la izquierda del canvas en su layout padre
+        canvas_parent = self.canvas.parentWidget()
+        if canvas_parent and canvas_parent.layout():
+            layout = canvas_parent.layout()
             for i in range(layout.count()):
                 item = layout.itemAt(i)
-                if item.widget() == pro_btn:
-                    layout.insertWidget(i, self.btn_limpiar)
+                if item.widget() == self.canvas:
+                    layout.insertWidget(i, self._left_col)
                     break
             else:
-                # Buscar en sublayouts
-                self._insert_before_in_layout(layout, pro_btn, self.btn_limpiar)
+                self._insert_before_recursive(layout, self.canvas, self._left_col)
 
-    def _insert_before_in_layout(self, layout, target_widget, new_widget):
-        """Inserta new_widget antes de target_widget en cualquier sublayout."""
+    def _insert_before_recursive(self, layout, target, new_widget):
         for i in range(layout.count()):
             item = layout.itemAt(i)
-            if item.widget() == target_widget:
+            if item.widget() == target:
                 layout.insertWidget(i, new_widget)
                 return True
             elif item.layout():
-                if self._insert_before_in_layout(item.layout(), target_widget, new_widget):
+                if self._insert_before_recursive(item.layout(), target, new_widget):
                     return True
         return False
 
+    def _ocultar_botones_ui(self):
+        """Oculta botones de Texto y Figura del .ui (reemplazados por columna)."""
+        if hasattr(self, 'pushButton_3'):
+            self.pushButton_3.hide()  # Texto
+        if hasattr(self, 'pushButton_2'):
+            self.pushButton_2.hide()  # Figura
+
     def _conectar_botones(self):
-        """Conecta los botones de la UI."""
-        self.pushButton_3.clicked.connect(self._on_anadir_texto)   # Texto
-        self.pushButton_2.clicked.connect(self._on_anadir_figura)  # Figura
-        self.btn_limpiar.clicked.connect(self._on_limpiar)         # Limpiar
-        self.pushButton.clicked.connect(self._on_modo_pro)         # PRO
-        self.pushButton_4.clicked.connect(self._on_stop)           # STOP
-        self.pushButton_5.clicked.connect(self._on_print)          # Print
+        """Conecta los botones de la UI (.ui + programáticos)."""
+        # Botones del .ui (barra superior)
+        self.pushButton.clicked.connect(self._on_modo_pro)    # PRO
+        self.pushButton_4.clicked.connect(self._on_stop)      # STOP
+        self.pushButton_5.clicked.connect(self._on_print)     # Extruir/Print
 
     def _conectar_engine(self):
-        """Conecta señales del motor de extrusión."""
         self.engine.progress_updated.connect(self._on_progress)
         self.engine.extrusion_finished.connect(self._on_finished)
         self.engine.extrusion_stopped.connect(self._on_stopped)
         self.engine.status_message.connect(self._on_status)
 
     def _aplicar_animaciones(self):
-        """Aplica animaciones de pulso a los botones."""
-        aplicar_animacion_pulso(self.pushButton_3)
-        aplicar_animacion_pulso(self.pushButton_2)
+        # Botones columna izquierda
+        aplicar_animacion_pulso(self.btn_texto)
+        aplicar_animacion_pulso(self.btn_patron)
         aplicar_animacion_pulso(self.btn_limpiar)
+        # Botones del .ui
         aplicar_animacion_pulso(self.pushButton)
         aplicar_animacion_pulso(self.pushButton_4)
         aplicar_animacion_pulso(self.pushButton_5)
@@ -193,7 +228,6 @@ class MainView(QMainWindow):
             self.impresion_terminada.emit()
 
     def _on_limpiar(self):
-        """Reinicia todo: progreso, canvas, y motor."""
         self.actividad_detectada.emit()
         if self.engine.is_extruding:
             self.engine.stop()
@@ -203,13 +237,22 @@ class MainView(QMainWindow):
         self.progressBar.setValue(0)
         self.pushButton_4.setEnabled(False)
         self.pushButton_5.setEnabled(True)
-        self.statusbar.showMessage(f"Todo reiniciado. Listo para decorar.")
+        self.statusbar.showMessage("Todo reiniciado. Listo para decorar.")
 
     def _on_print(self):
         self.actividad_detectada.emit()
         if self.engine.is_extruding:
             return
 
+        # Validar que haya algo configurado
+        if not self.canvas._patron and not self.canvas._texto:
+            QMessageBox.warning(
+                self, "Sin configuración",
+                "Debe seleccionar un patrón decorativo o\ningresar un texto antes de extruir."
+            )
+            return
+
+        # Confirmar extrusión
         respuesta = QMessageBox.question(
             self, "Confirmar Extrusión",
             "¿Desea iniciar la extrusión de crema?",

@@ -2,44 +2,188 @@
 # -*- coding: utf-8 -*-
 """
 Figure Options View - Proyecto de Grado
-Ventana para seleccionar patrón decorativo de crema.
+Ventana para seleccionar patrón decorativo con previsualización.
 """
 
-import os
 from PySide6.QtWidgets import (
-    QMainWindow, QMessageBox, QListView
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QListWidget, QListWidgetItem, QPushButton, QLabel,
+    QSlider, QFrame, QMessageBox, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, QStringListModel
+from PySide6.QtGui import QFont
 
-from frontend.resources.ui_loader import load_ui
+from frontend.widgets.alfajor_canvas import AlfajorCanvas
 from backend.config import SystemConfig
 
 
 class FigureOptionsView(QMainWindow):
-    """Ventana para configurar patrón decorativo."""
+    """Ventana para seleccionar patrón decorativo con previsualización."""
 
-    figura_configurada = Signal(str, int)  # (patrón, grosor)
+    figura_configurada = Signal(str, int)
     ir_atras = Signal()
     actividad_detectada = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        load_ui("ventana_4.ui", self)
-        self.setWindowTitle("Opciones de Patrón")
-        self._setup_lista_figuras()
-        self._conectar_botones()
+        self.setWindowTitle("Patrón Decorativo")
+        self.setFixedSize(SystemConfig.SCREEN_WIDTH, SystemConfig.SCREEN_HEIGHT)
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self._patron_actual = ""
+        self._build_ui()
+        self._aplicar_estilo()
 
-    def _setup_lista_figuras(self):
-        """Configura la lista de patrones disponibles."""
-        self.model = QStringListModel(SystemConfig.PATRONES)
-        if hasattr(self, 'listView'):
-            self.listView.setModel(self.model)
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
 
-    def _conectar_botones(self):
-        # pushButton = "ATRAS"
-        self.pushButton.clicked.connect(self._on_atras)
-        # pushButton_2 = "CONFIRMAR"
-        self.pushButton_2.clicked.connect(self._on_confirmar)
+        # === Panel izquierdo: lista de patrones + slider ===
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+
+        # Título
+        lbl_titulo = QLabel("Seleccione un patrón:")
+        lbl_titulo.setFont(QFont("Purisa", 14, QFont.Bold))
+        lbl_titulo.setStyleSheet("color: #4DB6AC;")
+        left_layout.addWidget(lbl_titulo)
+
+        # Lista de patrones
+        self.list_patrones = QListWidget()
+        self.list_patrones.setFont(QFont("Purisa", 12))
+        for patron in SystemConfig.PATRONES:
+            item = QListWidgetItem(patron)
+            self.list_patrones.addItem(item)
+        self.list_patrones.currentRowChanged.connect(self._on_patron_seleccionado)
+        left_layout.addWidget(self.list_patrones, stretch=1)
+
+        # Slider de grosor
+        lbl_grosor = QLabel("Grosor de crema:")
+        lbl_grosor.setFont(QFont("Purisa", 11))
+        lbl_grosor.setStyleSheet("color: #e0e0e0;")
+        left_layout.addWidget(lbl_grosor)
+
+        self.slider_grosor = QSlider(Qt.Horizontal)
+        self.slider_grosor.setMinimum(10)
+        self.slider_grosor.setMaximum(100)
+        self.slider_grosor.setValue(50)
+        self.slider_grosor.valueChanged.connect(self._on_grosor_changed)
+        left_layout.addWidget(self.slider_grosor)
+
+        self.lbl_grosor_val = QLabel("50%")
+        self.lbl_grosor_val.setAlignment(Qt.AlignCenter)
+        self.lbl_grosor_val.setFont(QFont("Purisa", 10))
+        self.lbl_grosor_val.setStyleSheet("color: #aaa;")
+        left_layout.addWidget(self.lbl_grosor_val)
+
+        # Botones
+        h_btns = QHBoxLayout()
+        h_btns.setSpacing(10)
+
+        self.btn_atras = QPushButton("← ATRÁS")
+        self.btn_atras.setMinimumHeight(50)
+        self.btn_atras.setFont(QFont("Purisa", 12, QFont.Bold))
+        self.btn_atras.clicked.connect(self._on_atras)
+        h_btns.addWidget(self.btn_atras)
+
+        self.btn_confirmar = QPushButton("✓ CONFIRMAR")
+        self.btn_confirmar.setMinimumHeight(50)
+        self.btn_confirmar.setFont(QFont("Purisa", 12, QFont.Bold))
+        self.btn_confirmar.clicked.connect(self._on_confirmar)
+        h_btns.addWidget(self.btn_confirmar)
+
+        left_layout.addLayout(h_btns)
+
+        left_panel.setMaximumWidth(380)
+        main_layout.addWidget(left_panel)
+
+        # === Separador ===
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color: #4DB6AC;")
+        main_layout.addWidget(sep)
+
+        # === Panel derecho: previsualización ===
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(5)
+
+        lbl_preview = QLabel("Vista previa:")
+        lbl_preview.setFont(QFont("Purisa", 12, QFont.Bold))
+        lbl_preview.setStyleSheet("color: #FFAB40;")
+        right_layout.addWidget(lbl_preview)
+
+        # Canvas de previsualización
+        self.preview_canvas = AlfajorCanvas()
+        self.preview_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        right_layout.addWidget(self.preview_canvas, stretch=1)
+
+        main_layout.addWidget(right_panel, stretch=1)
+
+    def _aplicar_estilo(self):
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background-color: #2b2b2b;
+            }
+            QListWidget {
+                background-color: #3c3c3c;
+                color: #e0e0e0;
+                border: 2px solid #4DB6AC;
+                border-radius: 8px;
+                padding: 5px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-radius: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: #4DB6AC;
+                color: white;
+            }
+            QListWidget::item:hover {
+                background-color: #3d6e68;
+            }
+            QSlider::groove:horizontal {
+                background: #555;
+                height: 8px;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: #4DB6AC;
+                width: 22px;
+                height: 22px;
+                margin: -7px 0;
+                border-radius: 11px;
+            }
+            QPushButton {
+                background-color: #4DB6AC;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-weight: bold;
+            }
+            QPushButton:pressed {
+                background-color: #3d9e95;
+            }
+        """)
+
+    # === Handlers ===
+
+    def _on_patron_seleccionado(self, row):
+        if row >= 0:
+            self._patron_actual = SystemConfig.PATRONES[row]
+            self.preview_canvas.set_patron(self._patron_actual)
+            self.preview_canvas.set_grosor(self.slider_grosor.value())
+
+    def _on_grosor_changed(self, value):
+        self.lbl_grosor_val.setText(f"{value}%")
+        self.preview_canvas.set_grosor(value)
 
     def _on_atras(self):
         self.actividad_detectada.emit()
@@ -48,29 +192,20 @@ class FigureOptionsView(QMainWindow):
 
     def _on_confirmar(self):
         self.actividad_detectada.emit()
-        if hasattr(self, 'listView'):
-            indices = self.listView.selectedIndexes()
-            if not indices:
-                QMessageBox.warning(self, "Advertencia",
-                                    "Seleccione un patrón decorativo.")
-                return
-            patron = self.model.data(indices[0], Qt.DisplayRole)
-        else:
-            patron = "Espiral clasica"
-
-        # Grosor del slider
-        grosor = 50
-        if hasattr(self, 'horizontalSlider'):
-            grosor = self.horizontalSlider.value()
-
-        self.figura_configurada.emit(patron, grosor)
+        if not self._patron_actual:
+            QMessageBox.warning(self, "Advertencia",
+                                "Seleccione un patrón decorativo.")
+            return
+        grosor = self.slider_grosor.value()
+        self.figura_configurada.emit(self._patron_actual, grosor)
         self.hide()
 
     def reset(self):
-        if hasattr(self, 'listView'):
-            self.listView.clearSelection()
-        if hasattr(self, 'horizontalSlider'):
-            self.horizontalSlider.setValue(50)
+        self.list_patrones.clearSelection()
+        self.slider_grosor.setValue(50)
+        self.lbl_grosor_val.setText("50%")
+        self._patron_actual = ""
+        self.preview_canvas.reset()
 
     def showEvent(self, event):
         self.actividad_detectada.emit()
