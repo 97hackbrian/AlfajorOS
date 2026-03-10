@@ -151,15 +151,15 @@ class FigureOptionsView(QMainWindow):
             }
             QSlider::groove:horizontal {
                 background: #555;
-                height: 8px;
-                border-radius: 4px;
+                height: 30px;
+                border-radius: 15px;
             }
             QSlider::handle:horizontal {
                 background: #4DB6AC;
-                width: 22px;
-                height: 22px;
-                margin: -7px 0;
-                border-radius: 11px;
+                width: 56px;
+                height: 56px;
+                margin: -18px 0;
+                border-radius: 28px;
             }
             QPushButton {
                 background-color: #4DB6AC;

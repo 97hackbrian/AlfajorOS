@@ -144,6 +144,26 @@ class MainView(QMainWindow):
 
         left_layout.addStretch(1)
 
+        # Botón PRO (al final de la columna)
+        self.btn_pro = QPushButton("⚙\nPRO")
+        self.btn_pro.setMinimumSize(90, 65)
+        self.btn_pro.setFont(btn_font)
+        self.btn_pro.setStyleSheet("""
+            QPushButton {
+                background-color: #FFAB40;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-weight: bold;
+                font-family: Purisa;
+            }
+            QPushButton:pressed {
+                background-color: #e09530;
+            }
+        """)
+        self.btn_pro.clicked.connect(self._on_modo_pro)
+        left_layout.addWidget(self.btn_pro)
+
         self._left_col.setFixedWidth(100)
 
         # Insertar la columna a la izquierda del canvas en su layout padre
@@ -170,18 +190,24 @@ class MainView(QMainWindow):
         return False
 
     def _ocultar_botones_ui(self):
-        """Oculta botones de Texto y Figura del .ui (reemplazados por columna)."""
-        if hasattr(self, 'pushButton_3'):
-            self.pushButton_3.hide()  # Texto
-        if hasattr(self, 'pushButton_2'):
-            self.pushButton_2.hide()  # Figura
+        """Elimina botones de Texto, Figura y PRO del .ui (reemplazados por columna)."""
+        for attr in ['pushButton_3', 'pushButton_2', 'pushButton']:
+            if hasattr(self, attr):
+                btn = getattr(self, attr)
+                parent = btn.parentWidget()
+                if parent and parent.layout():
+                    parent.layout().removeWidget(btn)
+                btn.hide()
+                btn.deleteLater()
 
     def _conectar_botones(self):
-        """Conecta los botones de la UI (.ui + programáticos)."""
+        """Conecta los botones de la UI (.ui)."""
         # Botones del .ui (barra superior)
-        self.pushButton.clicked.connect(self._on_modo_pro)    # PRO
         self.pushButton_4.clicked.connect(self._on_stop)      # STOP
         self.pushButton_5.clicked.connect(self._on_print)     # Extruir/Print
+        # Agrandar botón Extruir
+        self.pushButton_5.setMinimumHeight(75)
+        self.pushButton_5.setFont(QFont("Purisa", 14, QFont.Bold))
 
     def _conectar_engine(self):
         self.engine.progress_updated.connect(self._on_progress)
@@ -194,8 +220,8 @@ class MainView(QMainWindow):
         aplicar_animacion_pulso(self.btn_texto)
         aplicar_animacion_pulso(self.btn_patron)
         aplicar_animacion_pulso(self.btn_limpiar)
+        aplicar_animacion_pulso(self.btn_pro)
         # Botones del .ui
-        aplicar_animacion_pulso(self.pushButton)
         aplicar_animacion_pulso(self.pushButton_4)
         aplicar_animacion_pulso(self.pushButton_5)
 
