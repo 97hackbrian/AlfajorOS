@@ -201,34 +201,43 @@ class AlfajorCanvas(QWidget):
         w, h = self.width(), self.height()
         cx, cy = w / 2, h / 2
         size = min(w, h) - 30
-        scale = size * 0.35 / 35  # 35mm = radio alfajor en modelo 3D
+        scale = size * 0.35 / 35
 
-        # Fondo
+        # Fondo (sin transformar)
         self._dibujar_fondo(painter, w, h)
 
         tilt = self._current_tilt
+        rot = self._current_rotation
+
+        # Aplicar rotación global alrededor del centro
+        painter.save()
+        if abs(rot) > 0.1:
+            t = QTransform()
+            t.translate(cx, cy)
+            rot_rad = math.radians(rot)
+            # Shear para simular rotación en Z alrededor del alfajor
+            t.rotate(rot)
+            t.translate(-cx, -cy)
+            painter.setTransform(t, True)
 
         # Dibujar en orden de profundidad
-        # 1. Sombra del alfajor
         self._dibujar_sombra(painter, cx, cy, scale, tilt)
-
-        # 2. Alfajor (cilindro): lado inferior, lateral, tapa superior
         self._dibujar_alfajor_3d(painter, cx, cy, scale, tilt)
 
-        # 3. Crema con volumen
         rp = self._render_progreso
         if rp > 0 or self._patron:
             self._dibujar_crema_3d(painter, cx, cy, scale, tilt, rp)
 
-        # 4. Texto con volumen
         if self._texto and rp > 60:
             self._dibujar_texto_3d(painter, cx, cy, scale, tilt, rp)
 
-        # 5. Indicador de progreso
+        painter.restore()  # Quitar rotación para UI
+
+        # Indicador de progreso (sin rotación)
         if self._printing and self._progreso > 0 and self._progreso < 100:
             self._dibujar_indicador_progreso(painter, cx, cy, size)
 
-        # 6. UI: nombre de vista + estado
+        # UI (sin rotación)
         self._dibujar_ui(painter, w, h)
 
         painter.end()
@@ -254,7 +263,7 @@ class AlfajorCanvas(QWidget):
     def _dibujar_alfajor_3d(self, painter, cx, cy, scale, tilt):
         """Dibuja el alfajor como un cilindro 3D."""
         r = 35 * scale
-        grosor_galleta = 8 * scale  # Grosor del alfajor
+        grosor_galleta = 12 * scale  # Grosor del alfajor (más alto = más 3D)
         tilt_rad = math.radians(tilt)
         cos_t = math.cos(tilt_rad)
 
@@ -336,50 +345,57 @@ class AlfajorCanvas(QWidget):
         painter.drawEllipse(QPointF(cx, cy - h_visual / 2), r - 3, max(ry - 3, r * 0.27))
 
     def _dibujar_crema_3d(self, painter, cx, cy, scale, tilt, progreso):
-        """Dibuja la crema con volumen (grosor visible en 3D)."""
+        """Dibuja la crema con volumen ENCIMA del alfajor."""
         r = 35 * scale
         tilt_rad = math.radians(tilt)
-        h_visual = 8 * scale * math.sin(tilt_rad)
+        h_alfajor = 12 * scale * math.sin(tilt_rad)  # Misma altura que el alfajor
         ry = r * math.cos(tilt_rad) if tilt > 2 else r
         radio_crema = r * 0.82
 
         grosor_linea = 3 + (self._grosor / 100) * 7
-        crema_top_cy = cy - h_visual / 2
+        crema_height = 5 * scale  # Grosor de la crema
+
+        # La crema se dibuja ENCIMA de la cara superior del alfajor
+        alfajor_top_cy = cy - h_alfajor / 2
+        crema_surface_cy = alfajor_top_cy - crema_height * math.sin(tilt_rad)
 
         painter.save()
         if tilt > 2:
             t = QTransform()
-            t.translate(cx, crema_top_cy)
+            t.translate(cx, crema_surface_cy)
             t.scale(1.0, max(ry / r, 0.3))
-            t.translate(-cx, -crema_top_cy)
+            t.translate(-cx, -crema_surface_cy)
             painter.setTransform(t, True)
 
-        # Grosor 3D de la crema (múltiples capas de sombra para volumen)
-        crema_elevation = 5 * scale
-        if tilt > 3:
-            # Sombra profunda (da profundidad)
-            for layer in range(3, 0, -1):
-                offset = crema_elevation * layer * 0.35
-                alpha = 40 + layer * 15
-                sombra_pen = QPen(QColor(180, 170, 140, alpha), grosor_linea + 3,
+        # === Capas 3D: sombra debajo para dar volumen (crema → alfajor) ===
+        if tilt > 2:
+            num_layers = 6
+            for layer in range(num_layers, 0, -1):
+                frac = layer / num_layers
+                # Offset va HACIA ABAJO desde la superficie de la crema
+                offset = crema_height * frac * 2
+                alpha = int(40 + frac * 100)
+                thickness = grosor_linea + 3 - layer * 0.3
+                sombra_pen = QPen(QColor(220, 200, 160, alpha),
+                                 max(1, thickness),
                                  Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
                 painter.setPen(sombra_pen)
                 painter.setBrush(Qt.NoBrush)
-                self._dibujar_patron(painter, cx, crema_top_cy + offset,
+                self._dibujar_patron(painter, cx, crema_surface_cy + offset,
                                     radio_crema, progreso)
 
-        # Capa principal de crema
-        color_crema = QColor(255, 245, 220, 235)
+        # Capa principal de crema (superficie superior)
+        color_crema = QColor(255, 245, 220, 245)
         pen = QPen(color_crema, grosor_linea, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        self._dibujar_patron(painter, cx, crema_top_cy, radio_crema, progreso)
+        self._dibujar_patron(painter, cx, crema_surface_cy, radio_crema, progreso)
 
-        # Highlight superior (brillo)
-        highlight_pen = QPen(QColor(255, 255, 250, 90), max(2, grosor_linea * 0.6),
+        # Highlight (brillo en la parte más alta)
+        highlight_pen = QPen(QColor(255, 255, 252, 110), max(2, grosor_linea * 0.5),
                            Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
         painter.setPen(highlight_pen)
-        self._dibujar_patron(painter, cx, crema_top_cy - 2, radio_crema, progreso)
+        self._dibujar_patron(painter, cx, crema_surface_cy - 1.5, radio_crema, progreso)
 
         painter.restore()
 
@@ -413,23 +429,27 @@ class AlfajorCanvas(QWidget):
         rect = QRectF(cx - ancho_max, top_cy - 15, ancho_max * 2, 30)
         font = QFont("Purisa", font_size, QFont.Bold)
 
-        # Extrusión 3D: más capas para mayor volumen
-        extrusion_depth = 6 if tilt > 5 else 3
+        # Extrusión 3D: capas de volumen
+        extrusion_depth = 8 if tilt > 5 else 4
+        text_height = 4 * scale  # Altura del texto en 3D
         for d in range(extrusion_depth, 0, -1):
-            alpha = 30 + d * 20
-            painter.setPen(QPen(QColor(90, 60, 25, alpha), 1))
+            frac = d / extrusion_depth
+            alpha = int(40 + frac * 120)
+            offset_y = text_height * frac
+            painter.setPen(QPen(QColor(100, 70, 30, alpha), 1))
             painter.setFont(font)
-            r_offset = QRectF(rect.x() + d * 0.6, rect.y() + d * 1.2, rect.width(), rect.height())
+            r_offset = QRectF(rect.x(), rect.y() + offset_y,
+                            rect.width(), rect.height())
             painter.drawText(r_offset, Qt.AlignCenter, texto_visible)
 
-        # Texto principal
-        painter.setPen(QPen(QColor(180, 120, 60, 220), 1))
+        # Texto principal (superficie)
+        painter.setPen(QPen(QColor(180, 120, 60, 230), 1))
         painter.setFont(font)
         painter.drawText(rect, Qt.AlignCenter, texto_visible)
 
         # Highlight
-        painter.setPen(QPen(QColor(240, 200, 140, 80), 1))
-        r_hl = QRectF(rect.x() - 0.5, rect.y() - 0.5, rect.width(), rect.height())
+        painter.setPen(QPen(QColor(240, 200, 140, 90), 1))
+        r_hl = QRectF(rect.x(), rect.y() - 1, rect.width(), rect.height())
         painter.drawText(r_hl, Qt.AlignCenter, texto_visible)
 
         painter.restore()
