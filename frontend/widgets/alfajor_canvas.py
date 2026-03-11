@@ -107,11 +107,15 @@ class AlfajorCanvas(QWidget):
         self.update()
 
     def reset(self):
+        """Reinicia todo: progreso, patrón, texto, vista."""
         self._progreso = 0
         self._patron = ""
         self._texto = ""
         self._grosor = 50
         self._printing = False
+        self._view_mode = VIEW_TOP
+        self._free_tilt = 35.0
+        self._free_rotation = 30.0
         self.update()
 
     def start_animacion(self):
@@ -225,7 +229,7 @@ class AlfajorCanvas(QWidget):
         self._dibujar_alfajor_3d(painter, cx, cy, scale, tilt)
 
         rp = self._render_progreso
-        if rp > 0 or self._patron:
+        if rp > 0 and self._patron:
             self._dibujar_crema_3d(painter, cx, cy, scale, tilt, rp)
 
         if self._texto and rp > 60:
@@ -400,56 +404,60 @@ class AlfajorCanvas(QWidget):
         painter.restore()
 
     def _dibujar_texto_3d(self, painter, cx, cy, scale, tilt, progreso):
-        """Dibuja texto con efecto de extrusión 3D."""
+        """Dibuja texto con extrusión 3D ENCIMA del alfajor."""
         if not self._texto:
             return
 
         r = 35 * scale
         tilt_rad = math.radians(tilt)
-        h_visual = 8 * scale * math.sin(tilt_rad)
+        h_alfajor = 12 * scale * math.sin(tilt_rad)
         ry = r * math.cos(tilt_rad) if tilt > 2 else r
-        top_cy = cy - h_visual / 2
-        ancho_max = r * 0.5
+        crema_height = 5 * scale
+        ancho_max = r * 0.55
+
+        # Posición del texto: encima de la crema
+        alfajor_top_cy = cy - h_alfajor / 2
+        texto_surface_cy = alfajor_top_cy - crema_height * math.sin(tilt_rad)
 
         progress_texto = min(100, (progreso - 60) * 100 / 40)
         chars_visible = int(len(self._texto) * progress_texto / 100)
         texto_visible = self._texto[:max(1, chars_visible)]
 
-        font_size = max(10, int(ancho_max / max(len(self._texto), 1) * 1.2))
-        font_size = min(font_size, 28)
+        font_size = max(12, int(ancho_max / max(len(self._texto), 1) * 1.4))
+        font_size = min(font_size, 32)
 
         painter.save()
         if tilt > 2:
             t = QTransform()
-            t.translate(cx, top_cy)
+            t.translate(cx, texto_surface_cy)
             t.scale(1.0, max(ry / r, 0.3))
-            t.translate(-cx, -top_cy)
+            t.translate(-cx, -texto_surface_cy)
             painter.setTransform(t, True)
 
-        rect = QRectF(cx - ancho_max, top_cy - 15, ancho_max * 2, 30)
+        rect = QRectF(cx - ancho_max, texto_surface_cy - 18, ancho_max * 2, 36)
         font = QFont("Purisa", font_size, QFont.Bold)
 
-        # Extrusión 3D: capas de volumen
-        extrusion_depth = 8 if tilt > 5 else 4
-        text_height = 4 * scale  # Altura del texto en 3D
-        for d in range(extrusion_depth, 0, -1):
-            frac = d / extrusion_depth
-            alpha = int(40 + frac * 120)
-            offset_y = text_height * frac
-            painter.setPen(QPen(QColor(100, 70, 30, alpha), 1))
+        # Extrusión 3D: capas desde la superficie hacia abajo
+        text_extrusion = 6 * scale if tilt > 3 else 2 * scale
+        num_layers = 8 if tilt > 3 else 3
+        for d in range(num_layers, 0, -1):
+            frac = d / num_layers
+            alpha = int(30 + frac * 140)
+            offset_y = text_extrusion * frac
+            painter.setPen(QPen(QColor(90, 55, 20, alpha), 1))
             painter.setFont(font)
             r_offset = QRectF(rect.x(), rect.y() + offset_y,
                             rect.width(), rect.height())
             painter.drawText(r_offset, Qt.AlignCenter, texto_visible)
 
         # Texto principal (superficie)
-        painter.setPen(QPen(QColor(180, 120, 60, 230), 1))
+        painter.setPen(QPen(QColor(160, 100, 40, 240), 1))
         painter.setFont(font)
         painter.drawText(rect, Qt.AlignCenter, texto_visible)
 
-        # Highlight
-        painter.setPen(QPen(QColor(240, 200, 140, 90), 1))
-        r_hl = QRectF(rect.x(), rect.y() - 1, rect.width(), rect.height())
+        # Highlight superior
+        painter.setPen(QPen(QColor(240, 200, 140, 100), 1))
+        r_hl = QRectF(rect.x(), rect.y() - 1.5, rect.width(), rect.height())
         painter.drawText(r_hl, Qt.AlignCenter, texto_visible)
 
         painter.restore()
