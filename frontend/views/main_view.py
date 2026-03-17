@@ -18,8 +18,10 @@ from PySide6.QtGui import QFont
 from frontend.resources.ui_loader import load_ui
 from frontend.widgets.animated_button import aplicar_animacion_pulso
 from frontend.widgets.alfajor_canvas import AlfajorCanvas
+from frontend.widgets.printer_indicator import PrinterIndicator
 from backend.config import SystemConfig
 from backend.extruder import ExtruderEngine
+from backend.printer import PrinterConnection
 
 
 # Estilo celeste para botones laterales
@@ -55,7 +57,10 @@ class MainView(QMainWindow):
         # Motor de extrusión (backend)
         self.engine = ExtruderEngine(self)
 
-        # Cargar UI (mantiene barra superior con Extruir/STOP/PRO)
+        # Conexión serial con impresora
+        self.printer = PrinterConnection(self)
+
+        # Cargar UI
         load_ui("ventana_1_v2.ui", self)
         self.setWindowTitle(f"Extrusora de Crema — {self.usuario}")
 
@@ -71,6 +76,7 @@ class MainView(QMainWindow):
         # Conectar
         self._conectar_botones()
         self._conectar_engine()
+        self._conectar_printer()
         self._aplicar_animaciones()
         self._configurar_estado_inicial()
 
@@ -115,6 +121,10 @@ class MainView(QMainWindow):
         left_layout = QVBoxLayout(self._left_col)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
+
+        # Indicador de impresora (LED + texto)
+        self.printer_indicator = PrinterIndicator()
+        left_layout.addWidget(self.printer_indicator)
 
         btn_font = QFont("Purisa", 11, QFont.Bold)
 
@@ -214,6 +224,17 @@ class MainView(QMainWindow):
         self.engine.extrusion_finished.connect(self._on_finished)
         self.engine.extrusion_stopped.connect(self._on_stopped)
         self.engine.status_message.connect(self._on_status)
+
+    def _conectar_printer(self):
+        """Conecta señales de la impresora al indicador visual."""
+        self.printer.state_changed.connect(self.printer_indicator.set_state)
+        self.printer.connection_info.connect(self.printer_indicator.set_port_info)
+        self.printer.connection_info.connect(
+            lambda info: self.statusbar.showMessage(f"Impresora: {info}")
+        )
+        self.printer.error_occurred.connect(
+            lambda err: self.statusbar.showMessage(f"Error: {err}")
+        )
 
     def _aplicar_animaciones(self):
         # Botones columna izquierda

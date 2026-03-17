@@ -88,3 +88,9 @@ class SystemConfig:
     COLOR_ACENTO = "#FFAB40"
     COLOR_ERROR = "#F66151"
     COLOR_BORDE = "#555"
+
+    # === Impresora Serial ===
+    PRINTER_BAUDRATE = 115200
+    PRINTER_SCAN_PATTERNS = ["/dev/ttyUSB*", "/dev/ttyACM*"]
+    PRINTER_RECONNECT_MS = 5000    # Intervalo de reconexión (5s)
+    PRINTER_SERIAL_TIMEOUT = 2.0
