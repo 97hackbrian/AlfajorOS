@@ -22,6 +22,7 @@ from frontend.widgets.printer_indicator import PrinterIndicator
 from backend.config import SystemConfig
 from backend.extruder import ExtruderEngine
 from backend.printer import PrinterConnection
+from backend.gcode import GCodeGenerator
 
 
 # Estilo celeste para botones laterales
@@ -154,9 +155,29 @@ class MainView(QMainWindow):
 
         left_layout.addStretch(1)
 
+        # Botón MOTORES (liberar motores)
+        self.btn_motores = QPushButton("MOTORES\nOFF")
+        self.btn_motores.setMinimumSize(90, 55)
+        self.btn_motores.setFont(btn_font)
+        self.btn_motores.setStyleSheet("""
+            QPushButton {
+                background-color: #7E57C2;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-weight: bold;
+                font-family: Purisa;
+            }
+            QPushButton:pressed {
+                background-color: #6a48a8;
+            }
+        """)
+        self.btn_motores.clicked.connect(self._on_release_motors)
+        left_layout.addWidget(self.btn_motores)
+
         # Botón PRO (al final de la columna)
-        self.btn_pro = QPushButton("⚙\nPRO")
-        self.btn_pro.setMinimumSize(90, 65)
+        self.btn_pro = QPushButton("PRO")
+        self.btn_pro.setMinimumSize(90, 55)
         self.btn_pro.setFont(btn_font)
         self.btn_pro.setStyleSheet("""
             QPushButton {
@@ -235,12 +256,16 @@ class MainView(QMainWindow):
         self.printer.error_occurred.connect(
             lambda err: self.statusbar.showMessage(f"Error: {err}")
         )
+        # Progreso real del G-Code
+        self.printer.gcode_progress.connect(self._on_gcode_progress)
+        self.printer.gcode_finished.connect(self._on_gcode_done)
 
     def _aplicar_animaciones(self):
         # Botones columna izquierda
         aplicar_animacion_pulso(self.btn_texto)
         aplicar_animacion_pulso(self.btn_patron)
         aplicar_animacion_pulso(self.btn_limpiar)
+        aplicar_animacion_pulso(self.btn_motores)
         aplicar_animacion_pulso(self.btn_pro)
         # Botones del .ui
         aplicar_animacion_pulso(self.pushButton_4)
@@ -261,7 +286,7 @@ class MainView(QMainWindow):
     def _on_anadir_figura(self):
         self.actividad_detectada.emit()
         self.abrir_figura.emit()
-        self.statusbar.showMessage("Seleccionando patrón decorativo...")
+        self.statusbar.showMessage("Seleccionando patron decorativo...")
 
     def _on_modo_pro(self):
         self.actividad_detectada.emit()
@@ -270,12 +295,32 @@ class MainView(QMainWindow):
 
     def _on_stop(self):
         self.actividad_detectada.emit()
+        self.printer.stop_sending()
         if self.engine.is_extruding:
             self.engine.stop()
-            self.impresion_terminada.emit()
+        self.canvas.stop_animacion()
+        self.pushButton_4.setEnabled(False)
+        self.pushButton_5.setEnabled(True)
+        self.progressBar.setValue(0)
+        self.canvas.set_progreso(0)
+        self.impresion_terminada.emit()
+        self.statusbar.showMessage("Impresion detenida.")
+
+    def _on_release_motors(self):
+        """Libera los motores (M84) para mover manualmente."""
+        self.actividad_detectada.emit()
+        if self.printer.is_connected:
+            self.printer.send_command("M84")
+            self.statusbar.showMessage("Motores liberados. Puede mover manualmente.")
+        else:
+            QMessageBox.warning(
+                self, "Sin conexion",
+                "La impresora no esta conectada."
+            )
 
     def _on_limpiar(self):
         self.actividad_detectada.emit()
+        self.printer.stop_sending()
         if self.engine.is_extruding:
             self.engine.stop()
             self.impresion_terminada.emit()
@@ -294,27 +339,90 @@ class MainView(QMainWindow):
         # Validar que haya algo configurado
         if not self.canvas._patron and not self.canvas._texto:
             QMessageBox.warning(
-                self, "Sin configuración",
-                "Debe seleccionar un patrón decorativo o\ningresar un texto antes de extruir."
+                self, "Sin configuracion",
+                "Debe seleccionar un patron decorativo o\ningresar un texto antes de extruir."
             )
             return
 
-        # Confirmar extrusión
+        # Validar conexion con impresora
+        if not self.printer.is_connected:
+            QMessageBox.warning(
+                self, "Sin impresora",
+                "La impresora no esta conectada.\nVerifique la conexion USB."
+            )
+            return
+
+        # Generar G-Code
+        gen = GCodeGenerator()
+        gcode, meta = gen.generar_completo(
+            patron=self.canvas._patron or "",
+            texto=self.canvas._texto or "",
+            grosor_pct=self.canvas._grosor,
+        )
+
+        # Guardar metadata para mapeo de progreso
+        self._gcode_meta = meta
+
+        # Confirmar extrusion
+        from backend.gcode import GCodeParser
+        n_lineas = GCodeParser.contar_lineas(gcode)
         respuesta = QMessageBox.question(
-            self, "Confirmar Extrusión",
-            "¿Desea iniciar la extrusión de crema?",
+            self, "Confirmar Extrusion",
+            f"Se generaron {n_lineas} comandos G-Code.\n"
+            f"Patron: {self.canvas._patron or 'ninguno'}\n"
+            f"Texto: {self.canvas._texto or 'ninguno'}\n\n"
+            "Iniciar extrusion de crema?",
             QMessageBox.Yes | QMessageBox.No
         )
         if respuesta == QMessageBox.Yes:
+            # Activar animacion y UI
             self.canvas.start_animacion()
-            self.engine.start()
             self.pushButton_4.setEnabled(True)
             self.pushButton_5.setEnabled(False)
             self.impresion_iniciada.emit()
 
+            # Enviar G-Code real a la impresora (progreso via _on_gcode_progress)
+            self.printer.send_gcode(gcode)
+            self.statusbar.showMessage("Enviando G-Code a la impresora...")
+
     def _on_progress(self, value):
+        """Progreso de la simulacion del engine (no usado durante impresion real)."""
         self.progressBar.setValue(value)
         self.canvas.set_progreso(value)
+
+    def _on_gcode_progress(self, current, total):
+        """Progreso real del envio de G-Code — mapea a progreso visual."""
+        if total <= 0:
+            return
+
+        meta = getattr(self, '_gcode_meta', None)
+        if meta:
+            ds = meta["drawing_start"]
+            de = meta["drawing_end"]
+            drawing_range = de - ds
+
+            if drawing_range > 0:
+                if current <= ds:
+                    visual_pct = 0
+                elif current >= de:
+                    visual_pct = 100
+                else:
+                    visual_pct = int(((current - ds) / drawing_range) * 100)
+            else:
+                visual_pct = int((current / total) * 100)
+        else:
+            visual_pct = int((current / total) * 100)
+
+        bar_pct = int((current / total) * 100)
+        self.progressBar.setValue(bar_pct)
+        self.canvas.set_progreso(visual_pct)
+        self.statusbar.showMessage(
+            f"Imprimiendo: {current}/{total} ({bar_pct}%)"
+        )
+
+    def _on_gcode_done(self):
+        """G-Code enviado completamente — finalizar impresion."""
+        self._on_finished()
 
     def _on_finished(self):
         self.pushButton_4.setEnabled(False)
@@ -322,7 +430,7 @@ class MainView(QMainWindow):
         self.canvas.stop_animacion()
         self.impresion_terminada.emit()
         QMessageBox.information(self, "Completado",
-                                "¡La extrusión de crema ha finalizado!")
+                                "La extrusion de crema ha finalizado!")
 
     def _on_stopped(self):
         self.pushButton_4.setEnabled(False)

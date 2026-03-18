@@ -1,0 +1,50 @@
+# ============================================================
+# AlfajorOS - Configuracion de Impresora
+# Ender 3 Pro + Marlin - Extrusion de Crema en Frio
+# ============================================================
+
+# === Alfajor ===
+alfajor:
+  diametro_mm: 70.0        # Diametro del alfajor
+  margen_mm: 3.0           # Margen interno (no imprimir en el borde)
+  centro_x: 110.0          # Posicion X del centro en la cama
+  centro_y: 110.0          # Posicion Y del centro en la cama
+
+# === Impresion ===
+impresion:
+  z_altura_mm: 1.0         # Altura Z de impresion sobre el alfajor
+  velocidad_impresion: 1200 # mm/min (F value) durante extrusion
+  velocidad_viaje: 3000     # mm/min durante movimientos sin extruir
+  velocidad_z: 600          # mm/min para movimientos en Z
+  velocidad_primera_capa: 800  # mm/min para la primera linea
+
+# === Extrusor ===
+extrusor:
+  diametro_boquilla_mm: 3.0   # Diametro de la boquilla
+  flujo_e_por_mm: 0.05         # mm de E por cada mm de recorrido lineal
+  retraccion_mm: 2.0           # Distancia de retraccion entre trazos
+  velocidad_retraccion: 1800   # mm/min para retraccion
+  desretraccion_mm: 2.0        # Distancia de desretraccion (prime)
+  purga_inicial_mm: 5.0        # Purga antes de comenzar
+
+# === Viaje ===
+viaje:
+  z_hop_mm: 3.0                # Elevacion Z durante viajes sin extruir
+  pos_final_x: 10.0           # Posicion X de estacionamiento
+  pos_final_y: 10.0           # Posicion Y de estacionamiento
+  pos_final_z: 10.0           # Posicion Z de estacionamiento
+
+# === Linea de crema ===
+linea:
+  grosor_default_mm: 2.0      # Grosor de linea por defecto
+  grosor_min_mm: 0.5
+  grosor_max_mm: 5.0
+
+# === Serial ===
+serial:
+  baudrate: 115200
+  scan_patterns:
+    - "/dev/ttyUSB*"
+    - "/dev/ttyACM*"
+  reconnect_ms: 5000
+  timeout_s: 2.0

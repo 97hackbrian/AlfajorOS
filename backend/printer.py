@@ -13,6 +13,7 @@ from enum import Enum
 
 import serial
 from PySide6.QtCore import QObject, Signal, QTimer
+from backend.config import PrinterConfig as PC
 
 
 class PrinterState(Enum):
@@ -41,10 +42,10 @@ class PrinterConnection(QObject):
     gcode_progress = Signal(int, int)     # (línea_actual, total_líneas)
     gcode_finished = Signal()             # G-Code completado
 
-    BAUDRATE = 115200
-    SCAN_PATTERNS = ["/dev/ttyUSB*", "/dev/ttyACM*"]
-    RECONNECT_INTERVAL_MS = 5000   # Intervalo de reconexión (5s)
-    SERIAL_TIMEOUT = 2.0
+    BAUDRATE = PC.SERIAL_BAUDRATE
+    SCAN_PATTERNS = PC.SERIAL_SCAN_PATTERNS
+    RECONNECT_INTERVAL_MS = PC.SERIAL_RECONNECT_MS
+    SERIAL_TIMEOUT = PC.SERIAL_TIMEOUT_S
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -212,7 +213,7 @@ class PrinterConnection(QObject):
         self._set_state(PrinterState.DISCONNECTED)
         self.connection_info.emit("Impresora no encontrada")
 
-    def disconnect(self):
+    def disconnect_serial(self):
         """Desconecta la impresora."""
         self._stop_send = True
         with self._lock:
@@ -228,7 +229,7 @@ class PrinterConnection(QObject):
 
     def reconnect(self):
         """Fuerza un intento de reconexión."""
-        self.disconnect()
+        self.disconnect_serial()
         QTimer.singleShot(500, self._try_connect)
 
     # === Envío de Comandos ===
@@ -336,4 +337,4 @@ class PrinterConnection(QObject):
         self._reconnect_timer.stop()
         self._heartbeat_timer.stop()
         self._stop_send = True
-        self.disconnect()
+        self.disconnect_serial()
