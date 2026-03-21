@@ -13,9 +13,9 @@ alfajor:
 # === Impresion ===
 impresion:
   z_altura_mm: 1.0         # Altura Z de impresion sobre el alfajor
-  velocidad_impresion: 1200 # mm/min (F value) durante extrusion
-  velocidad_viaje: 3000     # mm/min durante movimientos sin extruir
-  velocidad_z: 600          # mm/min para movimientos en Z
+  velocidad_impresion: 1200 # mm/min (F value) durante extrusion XY
+  velocidad_viaje: 3000     # mm/min durante movimientos sin extruir XY
+  velocidad_z: 600          # mm/min para movimientos en Z 
   velocidad_primera_capa: 800  # mm/min para la primera linea
 
 # === Extrusor ===
